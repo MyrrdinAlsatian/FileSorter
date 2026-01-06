@@ -67,6 +67,7 @@ func main() {
 
 	// Affichage des résultats
 	fmt.Println("Scan terminé !")
+	fmt.Println("-------------------------")
 	fmt.Printf("Total de fichiers: %d\n", totalFiles)
 	fmt.Printf("Total de répertoires: %d\n", totalDirs)
 	fmt.Printf("Fichiers sans extension ou avec .txt: %d\n", noExtCount)
@@ -75,4 +76,5 @@ func main() {
 	for ext, count := range extCount {
 		fmt.Printf("Extension: %s, Nombre de fichiers: %d\n", ext, count)
 	}
+	fmt.Println("-------------------------")
 }
