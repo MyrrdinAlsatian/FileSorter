@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/h2non/filetype"
 	"github.com/schollz/progressbar/v3"
 )
 
@@ -120,23 +120,13 @@ func detectFileType(filePath string) string {
 		return "Erreur de lecture du fichier"
 	}
 
-	contentType := http.DetectContentType(buf[:n])
-
-	if strings.HasPrefix(contentType, "text/") {
-		return "texte"
-	} else if strings.HasPrefix(contentType, "image/") {
-		return "image"
-	} else if strings.HasPrefix(contentType, "video/") {
-		return "video"
-	} else if strings.HasPrefix(contentType, "audio/") {
-		return "audio"
-	} else if strings.HasPrefix(contentType, "application/pdf") {
-		return "pdf"
-	} else if strings.HasPrefix(contentType, "application/zip") ||
-		strings.HasPrefix(contentType, "application/x-rar") ||
-		strings.HasPrefix(contentType, "application/x-7z-compressed") {
-		return "archive"
+	kind, err := filetype.Match(buf[:n])
+	if err != nil {
+		return "Erreur de détection du type de fichier"
+	}
+	if kind != filetype.Unknown {
+		return kind.MIME.Value
 	}
 	// Par défaut, retourner le type MIME détecté
-	return contentType
+	return "inconnu"
 }
