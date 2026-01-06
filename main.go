@@ -7,9 +7,23 @@ import (
 	"strings"
 )
 
-var sourceDir = `Archive`
-
 func main() {
+
+	var sourceDir string
+
+	if len(os.Args) > 1 {
+		sourceDir = os.Args[1]
+	} else {
+		dir, err := os.Getwd()
+		if err != nil {
+			fmt.Println("Erreur lors de la récupération du répertoire courant:", err)
+			return
+		}
+		sourceDir = dir
+	}
+
+	fmt.Println("Analyse du répertoire :", sourceDir)
+	fmt.Println("Veuillez patienter...")
 
 	// Map pour compter les extensions de fichiers
 	extCount := make(map[string]int)
