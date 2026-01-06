@@ -30,7 +30,7 @@ func main() {
 	extCount := make(map[string]int)
 
 	// Compteur pour les fichiers sans extension
-	noExtCount := 0
+	noExtCount := make(map[string]int)
 
 	// Compteurs pour les fichiers et les répertoires
 	totalFiles := 0
@@ -54,7 +54,8 @@ func main() {
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 
 		if ext == "" || ext == ".txt" {
-			noExtCount++
+			realType := detectFileType(path)
+			noExtCount[realType]++
 		} else {
 			extCount[ext]++
 		}
@@ -71,11 +72,15 @@ func main() {
 	fmt.Println("-------------------------")
 	fmt.Printf("Total de fichiers: %d\n", totalFiles)
 	fmt.Printf("Total de répertoires: %d\n", totalDirs)
-	fmt.Printf("Fichiers sans extension ou avec .txt: %d\n", noExtCount)
 	fmt.Println("Extensions de fichiers trouvées:")
 	// Tri et affichage des extensions
 	for ext, count := range extCount {
 		fmt.Printf("Extension: %s, Nombre de fichiers: %d\n", ext, count)
+	}
+
+	fmt.Println("Fichiers sans extension ou de type texte détectés par type réel:")
+	for fileType, count := range noExtCount {
+		fmt.Printf("Type: %s, Nombre de fichiers: %d\n", fileType, count)
 	}
 	fmt.Println("-------------------------")
 }
