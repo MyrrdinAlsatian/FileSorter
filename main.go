@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,4 +78,44 @@ func main() {
 		fmt.Printf("Extension: %s, Nombre de fichiers: %d\n", ext, count)
 	}
 	fmt.Println("-------------------------")
+}
+
+func detectFileType(filePath string) string {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "Erreur d'ouverture du fichier"
+	}
+	// Permet de fermer le fichier après la détection mais à la fin de la fonction detectFileType
+	// Bonner pratique pour éviter les fuites de ressources, à mettre juste après l'ouverture du fichier
+	// tout ce qui est marqué defer est exécuté à la fin, même si plusieurs defer sont empilés,
+	// ils s’exécutent dans l’ordre inverse (pile LIFO)
+	defer f.Close()
+
+	// Lire les premiers 512 octets du fichier pour la détection du type MIME
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+
+	if err != nil {
+		return "Erreur de lecture du fichier"
+	}
+
+	contentType := http.DetectContentType(buf[:n])
+
+	if strings.HasPrefix(contentType, "text/") {
+		return "texte"
+	} else if strings.HasPrefix(contentType, "image/") {
+		return "image"
+	} else if strings.HasPrefix(contentType, "video/") {
+		return "video"
+	} else if strings.HasPrefix(contentType, "audio/") {
+		return "audio"
+	} else if strings.HasPrefix(contentType, "application/pdf") {
+		return "pdf"
+	} else if strings.HasPrefix(contentType, "application/zip") ||
+		strings.HasPrefix(contentType, "application/x-rar") ||
+		strings.HasPrefix(contentType, "application/x-7z-compressed") {
+		return "archive"
+	}
+	// Par défaut, retourner le type MIME détecté
+	return contentType
 }
