@@ -1,0 +1,41 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build and release folders
+dist/
+bin/
+
+# Coverage and profiling
+dist-coverage/
+coverage.out
+*.cover
+*.cov
+*.gcda
+*.gcno
+*.lcov
+*.prof
+*.pprof
+
+# Dependency vendoring
+vendor/
+
+# Logs and temp files
+*.log
+/tmp/
+*.tmp
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor and tooling
+.vscode/
+.idea/
+*.swp
+*~
