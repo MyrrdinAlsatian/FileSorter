@@ -125,7 +125,28 @@ func detectFileType(filePath string) string {
 		return "Erreur de détection du type de fichier"
 	}
 	if kind != filetype.Unknown {
-		return kind.MIME.Value
+		ext := kind.Extension
+		mime := kind.MIME.Value
+
+		switch {
+		case strings.HasPrefix(mime, "image/"):
+			return "image"
+		case strings.HasPrefix(mime, "video/"):
+			return "video"
+		case strings.HasPrefix(mime, "audio/"):
+			return "audio"
+		case strings.HasPrefix(mime, "application/pdf"):
+			return "pdf"
+		case strings.HasPrefix(mime, "application/zip") ||
+			strings.HasPrefix(mime, "application/x-rar") ||
+			strings.HasPrefix(mime, "application/x-7z-compressed"):
+			return "archive"
+		case strings.HasPrefix(mime, "text/"):
+			return "texte"
+		default:
+			// Tout le reste → on utilise l'extension détectée
+			return ext
+		}
 	}
 	// Par défaut, retourner le type MIME détecté
 	return "inconnu"
