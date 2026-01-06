@@ -36,7 +36,7 @@ func main() {
 	totalDirs := 0
 
 	// Parcours du répertoire source
-	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
 
 		if err != nil {
 			fmt.Printf("Erreur d'accès à %q: %v\n", path, err)
@@ -59,6 +59,11 @@ func main() {
 		}
 		return nil
 	})
+
+	if err != nil {
+		fmt.Println("Erreur lors du parcours du répertoire:", err)
+		return
+	}
 
 	// Affichage des résultats
 	fmt.Println("Scan terminé !")
