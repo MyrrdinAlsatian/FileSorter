@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 func main() {
@@ -49,7 +51,20 @@ func main() {
 			return nil
 		}
 		totalFiles++
+		return nil
+	})
 
+	bar := progressbar.Default(int64(totalFiles))
+
+	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+
+		if err != nil {
+			fmt.Printf("Erreur d'accès à %q: %v\n", path, err)
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
 		// Extraction de l'extension du fichier
 		ext := strings.ToLower(filepath.Ext(d.Name()))
 
@@ -59,6 +74,7 @@ func main() {
 		} else {
 			extCount[ext]++
 		}
+		bar.Add(1)
 		return nil
 	})
 
