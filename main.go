@@ -25,7 +25,7 @@ func main() {
 	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
 
 		if err != nil {
-			fmt.Printf("Error accessing path %q: %v\n", path, err)
+			fmt.Printf("Erreur d'accès à %q: %v\n", path, err)
 			return nil
 		}
 
