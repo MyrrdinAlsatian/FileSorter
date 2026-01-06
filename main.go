@@ -147,7 +147,51 @@ func detectFileType(filePath string) string {
 			// Tout le reste → on utilise l'extension détectée
 			return ext
 		}
+	} else {
+		return detectPattern(filePath)
 	}
-	// Par défaut, retourner le type MIME détecté
+}
+
+func detectPattern(filePath string) string {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "Erreur d'ouverture du fichier"
+	}
+	defer f.Close()
+
+	buf := make([]byte, 1024)
+	n, err := f.Read(buf)
+
+	if err != nil {
+		return "Erreur de lecture du fichier"
+	}
+
+	content := string(buf[:n])
+	content = strings.TrimSpace(content)
+
+	if strings.HasPrefix(content, "<html") {
+		return "html"
+	} else if strings.HasPrefix(content, "<?xml") {
+		return "xml"
+	} else if strings.HasPrefix(content, "BEGIN CERTIFICATE") {
+		return "certificat"
+	} else if strings.HasPrefix(content, "#") {
+		return "markdown"
+	} else if strings.HasPrefix(content, "{") {
+		return "json"
+	} else if strings.HasPrefix(content, "BEGIN CERTIFICATE") {
+		return "certificat"
+	} else if strings.Contains(content, "{") && strings.Contains(content, "}") &&
+		(strings.Contains(content, "color") || strings.Contains(content, "background") || strings.Contains(content, "font")) {
+		return "css"
+	} else if strings.Contains(content, "function") || strings.Contains(content, "var ") ||
+		strings.Contains(content, "const ") || strings.Contains(content, "let ") || strings.Contains(content, "=>") {
+		return "js"
+	} else if strings.HasPrefix(content, "package ") || strings.Contains(content, "func ") || strings.Contains(content, "import ") {
+		return "go"
+	} else if strings.HasPrefix(content, "<?php") {
+		return "php"
+	}
+
 	return "inconnu"
 }
