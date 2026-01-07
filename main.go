@@ -47,9 +47,9 @@ func main() {
 
 	bar := scanner.CreateProgessBar(stats.TotalFiles)
 	//  Scan the directory and update progress bar
-	err = scanner.ScanDirectory(sourceDir, stats, func() {
+	err = scanner.ScanDirectoryParallel(sourceDir, stats, func() {
 		bar.Add(1)
-	})
+	}, 4)
 
 	if err != nil {
 		fmt.Println("Error during scanning:", err)
