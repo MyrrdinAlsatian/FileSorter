@@ -19,10 +19,8 @@ func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error
 		}
 
 		if d.IsDir() {
-			stats.TotalDirs++
 			return nil
 		}
-		stats.TotalFiles++
 
 		fileType := detector.Detect(path)
 
@@ -36,4 +34,18 @@ func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error
 	})
 
 	return nil
+}
+
+func CountFile(sourceDir string, stats *types.Stats) error {
+	return filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			stats.TotalDirs++
+			return nil
+		}
+		stats.TotalFiles++
+		return nil
+	})
 }
