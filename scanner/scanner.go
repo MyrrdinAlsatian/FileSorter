@@ -45,7 +45,13 @@ func CountFile(sourceDir string, stats *types.Stats) error {
 			stats.TotalDirs++
 			return nil
 		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		stats.TotalSize += info.Size()
 		stats.TotalFiles++
+
 		return nil
 	})
 }

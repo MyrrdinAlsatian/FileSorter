@@ -7,6 +7,7 @@ import (
 
 	"FileRecoveryOrganizer/scanner"
 	"FileRecoveryOrganizer/types"
+	"FileRecoveryOrganizer/utils"
 
 	"github.com/h2non/filetype"
 )
@@ -41,10 +42,10 @@ func main() {
 	}
 
 	fmt.Printf(" ➡ Total files: %d, Total directories: %d\n", stats.TotalFiles, stats.TotalDirs)
+	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
+	fmt.Printf("Start scanning...")
 
 	bar := scanner.CreateProgessBar(stats.TotalFiles)
-	fmt.Println("Start scanning...")
-
 	//  Scan the directory and update progress bar
 	err = scanner.ScanDirectory(sourceDir, stats, func() {
 		bar.Add(1)
@@ -60,6 +61,7 @@ func main() {
 	fmt.Println("-------------------------")
 	fmt.Printf("Total de fichiers: %d\n", stats.TotalFiles)
 	fmt.Printf("Total de répertoires: %d\n", stats.TotalDirs)
+	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
 	fmt.Println("Extensions de fichiers trouvées:")
 	// Tri et affichage des extensions
 	for fileType, count := range stats.DetectedFileType {
