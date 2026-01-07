@@ -57,6 +57,7 @@ func main() {
 	}
 
 	// Affichage des résultats
+	fmt.Println("-------------------------")
 	fmt.Println("📊 Result summary :")
 	fmt.Println("-------------------------")
 	fmt.Printf("Total de fichiers: %d\n", stats.TotalFiles)
