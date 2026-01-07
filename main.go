@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"FileRecoveryOrganizer/scanner"
+	"FileRecoveryOrganizer/types"
+
 	"github.com/h2non/filetype"
-	"github.com/schollz/progressbar/v3"
 )
 
 func main() {
@@ -19,84 +20,50 @@ func main() {
 	} else {
 		dir, err := os.Getwd()
 		if err != nil {
-			fmt.Println("Erreur lors de la récupération du répertoire courant:", err)
+			fmt.Println("Error during getting current directory:", err)
 			return
 		}
 		sourceDir = dir
 	}
 
-	fmt.Println("Analyse du répertoire :", sourceDir)
-	fmt.Println("Veuillez patienter...")
+	fmt.Println("Start directory scan :", sourceDir)
 
 	// Map pour compter les extensions de fichiers
-	extCount := make(map[string]int)
+	stats := &types.Stats{
+		DetectedFileType: make(map[string]int),
+	}
 
-	// Compteur pour les fichiers sans extension
-	noExtCount := make(map[string]int)
-
-	// Compteurs pour les fichiers et les répertoires
-	totalFiles := 0
-	totalDirs := 0
-
+	err := scanner.CountFile(sourceDir, stats)
 	// Parcours du répertoire source
-	err := filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+	if err != nil {
+		fmt.Println("Error during the file count process")
+		return
+	}
 
-		if err != nil {
-			fmt.Printf("Erreur d'accès à %q: %v\n", path, err)
-			return nil
-		}
+	fmt.Printf(" ➡ Total files: %d, Total directories: %d\n", stats.TotalFiles, stats.TotalDirs)
 
-		if d.IsDir() {
-			totalDirs++
-			return nil
-		}
-		totalFiles++
-		return nil
-	})
+	bar := scanner.CreateProgessBar(stats.TotalFiles)
+	fmt.Println("Start scanning...")
 
-	bar := progressbar.Default(int64(totalFiles))
-
-	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
-
-		if err != nil {
-			fmt.Printf("Erreur d'accès à %q: %v\n", path, err)
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		// Extraction de l'extension du fichier
-		ext := strings.ToLower(filepath.Ext(d.Name()))
-
-		if ext == "" || ext == ".txt" {
-			realType := detectFileType(path)
-			noExtCount[realType]++
-		} else {
-			extCount[ext]++
-		}
+	//  Scan the directory and update progress bar
+	err = scanner.ScanDirectory(sourceDir, stats, func() {
 		bar.Add(1)
-		return nil
 	})
 
 	if err != nil {
-		fmt.Println("Erreur lors du parcours du répertoire:", err)
+		fmt.Println("Error during scanning:", err)
 		return
 	}
 
 	// Affichage des résultats
-	fmt.Println("Scan terminé !")
+	fmt.Println("📊 Result summary :")
 	fmt.Println("-------------------------")
-	fmt.Printf("Total de fichiers: %d\n", totalFiles)
-	fmt.Printf("Total de répertoires: %d\n", totalDirs)
+	fmt.Printf("Total de fichiers: %d\n", stats.TotalFiles)
+	fmt.Printf("Total de répertoires: %d\n", stats.TotalDirs)
 	fmt.Println("Extensions de fichiers trouvées:")
 	// Tri et affichage des extensions
-	for ext, count := range extCount {
-		fmt.Printf("Extension: %s, Nombre de fichiers: %d\n", ext, count)
-	}
-
-	fmt.Println("Fichiers sans extension ou de type texte détectés par type réel:")
-	for fileType, count := range noExtCount {
-		fmt.Printf("Type: %s, Nombre de fichiers: %d\n", fileType, count)
+	for fileType, count := range stats.DetectedFileType {
+		fmt.Printf(".%s, Nombre de fichiers: %d\n", fileType, count)
 	}
 	fmt.Println("-------------------------")
 }

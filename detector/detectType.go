@@ -13,7 +13,7 @@ func detectFileType(path string) string {
 	}
 	defer f.Close()
 
-	buf := make([]byte, 8192)
+	buf := make([]byte, 261) //512 bytes is enough for filetype detection
 	n, err := f.Read(buf)
 
 	if err != nil {
