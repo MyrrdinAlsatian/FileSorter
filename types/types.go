@@ -2,8 +2,8 @@ package types
 
 type Stats struct {
 	TotalFiles int
-	totalDirs  int
+	TotalDirs  int
 
-	extensionCount map[string]int
-	detectFileType map[string]int
+	ExtensionCount   map[string]int
+	DetectedFileType map[string]int
 }
