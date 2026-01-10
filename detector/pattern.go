@@ -1,70 +1,106 @@
 package detector
 
 import (
-	"os"
-	"strings"
+	"bytes"
+	// "os"
+	// "strings"
+	"unicode"
 )
 
-func detectPattern(path string) string {
+func trimLeftSpaces(buf []byte) []byte {
+	return bytes.TrimLeftFunc(buf, unicode.IsSpace)
+}
 
-	f, err := os.Open(path)
-	if err != nil {
-		return "Error opening file"
+func containsAll(buf []byte, patterns ...[]byte) bool {
+	for _, pattern := range patterns {
+		if !bytes.Contains(buf, pattern) {
+			return false
+		}
 	}
-	defer f.Close()
+	return true
+}
 
-	buf := make([]byte, 1024)
-	n, err := f.Read(buf)
-	if err != nil {
-		return "Error reading file"
-	}
+// func detectPattern(path string) string {
+func detectPattern(buf []byte) string {
 
-	content := string(buf[:n])
-	content = strings.TrimSpace(content)
-	switch {
-	case strings.HasPrefix(content, "package ") || strings.Contains(content, "func ") || strings.Contains(content, "import "):
-		return "go"
-	case strings.HasPrefix(content, "<?php"):
-		return "php"
-	case strings.HasPrefix(content, "#!/usr/bin/python") || strings.Contains(content, "def "):
-		return "python"
-	case strings.HasPrefix(content, "#!/bin/bash") || strings.Contains(content, "echo ") || strings.Contains(content, "function "):
-		return "bash"
-	case strings.HasPrefix(content, "#!/usr/bin/env ruby") || strings.Contains(content, "def ") || strings.Contains(content, "class "):
-		return "ruby"
-	case strings.HasPrefix(content, "#!/usr/bin/perl"):
-		return "perl"
-	case strings.Contains(content, "function") || strings.Contains(content, "var ") || strings.Contains(content, "let ") ||
-		strings.Contains(content, "const ") || strings.Contains(content, "=>"):
-		return "js"
-	case strings.Contains(content, "interface") || strings.Contains(content, "type ") || strings.Contains(content, "export "):
-		return "ts"
-	}
-	// ---------- Documents / Web ----------
-	switch {
-	case strings.HasPrefix(content, "{") || strings.HasPrefix(content, "["):
-		return "json"
-	case strings.HasPrefix(content, "<?xml"):
-		return "xml"
-	case strings.HasPrefix(content, "#") || strings.Contains(content, "\n#"):
-		return "md"
-	case strings.HasPrefix(content, "<!DOCTYPE html>") || strings.HasPrefix(content, "<html"):
-		return "html"
-	case strings.HasPrefix(content, "\\documentclass"):
-		return "latex"
-	case strings.Contains(content, "{") && strings.Contains(content, "}") &&
-		(strings.Contains(content, "color") || strings.Contains(content, "background") || strings.Contains(content, "font")):
-		return "css"
+	if len(buf) == 0 {
+		return "empty"
 	}
 
-	// ---------- Fichiers de config ----------
-	switch {
-	case strings.Contains(content, "---") && strings.Contains(content, ":"):
-		return "yaml"
-	case strings.Contains(content, "[") && strings.Contains(content, "]") && strings.Contains(content, "="):
-		return "ini"
-	case strings.Contains(content, "[") && strings.Contains(content, "]") && strings.Contains(content, "="):
-		return "toml"
+	if bytes.IndexByte(buf, 0) != -1 {
+		return "binary"
 	}
+
+	for _, matcher := range patternMatchers {
+		if ext, matched := matcher(buf); matched {
+			return ext
+		}
+	}
+
 	return "other extension"
+}
+
+func matchGo(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "go", bytes.HasPrefix(b, []byte("package ")) && containsAll(b, []byte("func "), []byte("import "))
+}
+
+func matchJs(buf []byte) (string, bool) {
+	return "js", containsAll(buf, []byte("function"), []byte("{")) || bytes.Contains(buf, []byte("=> "))
+}
+
+func matchTs(buf []byte) (string, bool) {
+	return "ts", containsAll(buf, []byte("interface"), []byte("type ")) || bytes.Contains(buf, []byte("export "))
+}
+
+func matchIni(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "ini", bytes.Contains(b, []byte("[")) && bytes.Contains(b, []byte("]")) && bytes.Contains(b, []byte("="))
+}
+
+func matchToml(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "toml", bytes.Contains(b, []byte("[")) && bytes.Contains(b, []byte("]")) && bytes.Contains(b, []byte("=")) && bytes.Contains(b, []byte("\""))
+}
+
+func matchLatex(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "latex", bytes.HasPrefix(b, []byte("\\documentclass"))
+}
+
+func matchPython(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "python", bytes.HasPrefix(b, []byte("#!/usr/bin/python")) || containsAll(b, []byte("def "), []byte(":"))
+}
+
+func matchPhp(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "php", bytes.HasPrefix(b, []byte("<?php"))
+}
+
+func matchCss(buf []byte) (string, bool) {
+	return "css", containsAll(buf, []byte("{"), []byte("}")) && (bytes.Contains(buf, []byte("color")) || bytes.Contains(buf, []byte("background")) || bytes.Contains(buf, []byte("font")))
+}
+func matchJson(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "json", (len(b) > 0 && (b[0] == '{' || b[0] == '[') && bytes.Contains(b, []byte(":")))
+}
+
+func matchMd(buf []byte) (string, bool) {
+	b := trimLeftSpaces(buf)
+	return "md", bytes.HasPrefix(b, []byte("# ")) || bytes.Contains(b, []byte("\n#"))
+}
+
+var patternMatchers = []func([]byte) (string, bool){
+	matchPhp,
+	matchGo,
+	matchPython,
+	matchJson,
+	matchMd,
+	matchJs,
+	matchTs,
+	matchCss,
+	matchIni,
+	matchToml,
+	matchLatex,
 }
