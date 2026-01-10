@@ -6,7 +6,7 @@ func Detect(path string) string {
 		return typeOrExt
 	}
 
-	patternType := detectPattern(path)
+	patternType := detectPattern([]byte(path))
 
 	if patternType != "other extension" {
 		return patternType
