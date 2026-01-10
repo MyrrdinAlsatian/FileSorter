@@ -42,7 +42,7 @@ func detectPattern(buf []byte) string {
 
 func matchGo(buf []byte) (string, bool) {
 	b := trimLeftSpaces(buf)
-	return "go", bytes.HasPrefix(b, []byte("package ")) && containsAll(b, []byte("func "), []byte("import "))
+	return "go", bytes.HasPrefix(b, []byte("package ")) && bytes.Contains(b, []byte("type ")) && containsAll(b, []byte("func "), []byte("import "))
 }
 
 func matchJs(buf []byte) (string, bool) {
