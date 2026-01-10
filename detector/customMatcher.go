@@ -175,13 +175,6 @@ func accdbMatcher(buf []byte) bool {
 	return hasPrefix(buf, 0x50, 0x4B, 0x03, 0x04)
 }
 
-var pstType = filetype.NewType("pst", "application/x-pst")
-
-// pstMatcher matches Outlook PST magic.
-func pstMatcher(buf []byte) bool {
-	return hasPrefix(buf, 0x21, 0x42, 0x44, 0x4E)
-}
-
 var pfxType = filetype.NewType("pfx", "application/x-pkcs12")
 
 // pfxMatcher matches PKCS#12 containers (PFX/P12).
@@ -225,13 +218,6 @@ func lnkMatcher(buf []byte) bool {
 		buf[16] == 0x00 && buf[17] == 0x00 && buf[18] == 0x00 && buf[19] == 0x46
 }
 
-var xmlType = filetype.NewType("xml", "application/xml")
-
-// xmlMatcher matches XML prolog.
-func xmlMatcher(buf []byte) bool {
-	return hasPrefix(buf, 0x3C, 0x3F, 0x78, 0x6D, 0x6C) // "<?xml"
-}
-
 var htmlType = filetype.NewType("html", "text/html")
 
 // htmlMatcher matches HTML doctype prefix.
@@ -243,7 +229,14 @@ var shType = filetype.NewType("sh", "application/x-sh")
 
 // shMatcher matches Unix shebang for shell scripts.
 func shMatcher(buf []byte) bool {
-	return hasPrefix(buf, 0x23, 0x21, 0x2F) // "#!/"
+	return hasPrefix(buf, 0x23, 0x21, 0x2F, 0x75, 0x73, 0x72, 0x2F, 0x62, 0x69, 0x6E, 0x2F, 0x73, 0x68) // "#!/usr/bin/sh"
+}
+
+var bashType = filetype.NewType("bash", "application/x-bash")
+
+// bashMatcher matches Unix shebang for bash scripts.
+func bashMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x23, 0x21, 0x2F, 0x62, 0x69, 0x6E, 0x2F, 0x62, 0x61, 0x73, 0x68) // "#!/bin/bash"
 }
 
 var plistType = filetype.NewType("plist", "application/x-plist")
@@ -294,6 +287,77 @@ func icmMatcher(buf []byte) bool {
 	return hasPrefix(buf, 0x48, 0x43, 0x4D, 0x53) // "\x00\x00\x02\x00"
 }
 
+var phpType = filetype.NewType("php", "text/text")
+
+// phpMatcher matches PHP script files.
+func phpMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x3C, 0x3F, 0x70, 0x68, 0x70) // "<?php"
+}
+
+var m3uType = filetype.NewType("m3u", "audio/x-mpegurl")
+
+// m3uMatcher matches M3U playlist files.
+func m3uMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x23, 0x45, 0x58, 0x54, 0x4D, 0x33, 0x55) // "#EXTM3U"
+}
+
+var auType = filetype.NewType("au", "audio/basic")
+
+// auMatcher matches Sun/NeXT AU audio file header.
+func auMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x2E, 0x73, 0x6E, 0x64) // ".snd"
+}
+
+var perlType = filetype.NewType("pl", "application/x-perl")
+
+// perlMatcher matches Perl script shebang.
+func perlMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x23, 0x21, 0x2F, 0x75, 0x73, 0x72, 0x2F, 0x62, 0x69, 0x6E, 0x2F, 0x70, 0x65, 0x72, 0x6C) // "#!/usr/bin/perl"
+}
+
+var wvType = filetype.NewType("wv", "audio/x-wavpack")
+
+// wvMatcher matches WavPack audio file header.
+func wvMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x77, 0x76, 0x70, 0x6B) // "wvpk"
+}
+
+var blendType = filetype.NewType("blend", "application/x-blender")
+
+// blendMatcher matches Blender .blend file header.
+func blendMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x42, 0x4C, 0x45, 0x4E, 0x44, 0x45, 0x52) // "BLENDER"
+}
+
+var cdrType = filetype.NewType("cdr", "application/x-coreldraw")
+
+// cdrMatcher matches CorelDRAW .cdr file header.
+func cdrMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x52, 0x49, 0x46, 0x46) && // "RIFF"
+		buf[8] == 0x43 && buf[9] == 0x44 && buf[10] == 0x52 && buf[11] == 0x44 // "CDRD"
+}
+
+var oneType = filetype.NewType("one", "application/x-onenote")
+
+// oneMatcher matches Microsoft OneNote .one file header.
+func oneMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0xE4, 0x52, 0x5C, 0x7B, 0x8C, 0xD8, 0xA7, 0x4D, 0xAE, 0xB2, 0x37, 0xA9, 0x12, 0x56, 0x8E, 0x98) // "\x0EContent"
+}
+
+var mboxType = filetype.NewType("mbox", "application/x-mbox")
+
+// mboxMatcher matches MBOX email file header.
+func mboxMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x46, 0x72, 0x6F, 0x6D, 0x20, 0x20, 0x20, 0x20) // "From    "
+}
+
+var vcfType = filetype.NewType("vcf", "text/vcard")
+
+// vcfMatcher matches vCard file header.
+func vcfMatcher(buf []byte) bool {
+	return hasPrefix(buf, 0x42, 0x45, 0x47, 0x49, 0x4E, 0x3A, 0x56, 0x43, 0x41, 0x52, 0x44) // "BEGIN:VCARD"
+}
+
 // RegisterCustomMatchers wires all custom signature matchers into filetype.
 func RegisterCustomMatchers() {
 	// Exemple d'ajout d'un matcher personnalisé pour les fichiers ".custom"
@@ -314,13 +378,11 @@ func RegisterCustomMatchers() {
 	filetype.AddMatcher(swcType, swcMatcher)
 	filetype.AddMatcher(mdbType, mdbMatcher)
 	filetype.AddMatcher(accdbType, accdbMatcher)
-	filetype.AddMatcher(pstType, pstMatcher)
 	filetype.AddMatcher(pfxType, pfxMatcher)
 	filetype.AddMatcher(keyNoteType, keyNoteMatcher)
 	filetype.AddMatcher(dsaType, dsaMatcher)
 	filetype.AddMatcher(aniType, aniMatcher)
 	filetype.AddMatcher(lnkType, lnkMatcher)
-	filetype.AddMatcher(xmlType, xmlMatcher)
 	filetype.AddMatcher(htmlType, htmlMatcher)
 	filetype.AddMatcher(shType, shMatcher)
 	filetype.AddMatcher(plistType, plistMatcher)
@@ -329,5 +391,15 @@ func RegisterCustomMatchers() {
 	filetype.AddMatcher(nefType, nefMatcher)
 	filetype.AddMatcher(ds_storeType, ds_storeMatcher)
 	filetype.AddMatcher(icmType, icmMatcher)
-
+	filetype.AddMatcher(phpType, phpMatcher)
+	filetype.AddMatcher(m3uType, m3uMatcher)
+	filetype.AddMatcher(auType, auMatcher)
+	filetype.AddMatcher(perlType, perlMatcher)
+	filetype.AddMatcher(bashType, bashMatcher)
+	filetype.AddMatcher(wvType, wvMatcher)
+	filetype.AddMatcher(blendType, blendMatcher)
+	filetype.AddMatcher(cdrType, cdrMatcher)
+	filetype.AddMatcher(oneType, oneMatcher)
+	filetype.AddMatcher(mboxType, mboxMatcher)
+	filetype.AddMatcher(vcfType, vcfMatcher)
 }
