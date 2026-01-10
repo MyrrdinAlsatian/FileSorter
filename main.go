@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/scanner"
 	"FileRecoveryOrganizer/types"
 	"FileRecoveryOrganizer/utils"
@@ -40,6 +41,7 @@ func main() {
 		fmt.Println("Error during the file count process")
 		return
 	}
+	detector.RegisterCustomMatchers()
 
 	fmt.Printf(" ➡ Total files: %d, Total directories: %d\n", stats.TotalFiles, stats.TotalDirs)
 	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
