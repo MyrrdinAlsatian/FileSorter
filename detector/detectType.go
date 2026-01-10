@@ -3,6 +3,7 @@ package detector
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/h2non/filetype"
@@ -42,5 +43,5 @@ func detectFileType(path string) string {
 	if kind != filetype.Unknown {
 		return kind.Extension
 	}
-	return "other extension"
+	return filepath.Ext(path)[1:] // return extension without dot
 }
