@@ -1,33 +1,39 @@
+// Package detector declares custom file signature matchers wired into github.com/h2non/filetype.
 package detector
 
 import "github.com/h2non/filetype"
 
 var dllType = filetype.NewType("dll", "application/x-msdownload")
 
+// dllMatcher matches PE headers (MZ) used by DLL/EXE files.
 func dllMatcher(buf []byte) bool {
 	return len(buf) > 2 && buf[0] == 0x4D && buf[1] == 0x5A
 }
 
 var jarType = filetype.NewType("jar", "application/java-archive")
 
+// jarMatcher matches ZIP-based JAR archives.
 func jarMatcher(buf []byte) bool {
 	return len(buf) > 4 && buf[0] == 0x50 && buf[1] == 0x4B && buf[2] == 0x03 && buf[3] == 0x04
 }
 
 var classType = filetype.NewType("class", "application/java-vm")
 
+// classMatcher matches Java bytecode class files (CAFEBABE).
 func classMatcher(buf []byte) bool {
 	return len(buf) > 4 && buf[0] == 0xCA && buf[1] == 0xFE && buf[2] == 0xBA && buf[3] == 0xBE
 }
 
 var pycType = filetype.NewType("pyc", "application/x-python-code")
 
+// pycMatcher matches Python compiled bytecode headers.
 func pycMatcher(buf []byte) bool {
 	return len(buf) > 4 && buf[0] == 0x42 && buf[1] == 0x0D && buf[2] == 0x0D && buf[3] == 0x0A
 }
 
 var wmaType = filetype.NewType("wma", "audio/x-ms-wma")
 
+// wmaMatcher matches ASF/WMA GUID prefix.
 func wmaMatcher(buf []byte) bool {
 	return len(buf) > 8 &&
 		buf[0] == 0x30 && buf[1] == 0x26 && buf[2] == 0xB2 && buf[3] == 0x75 &&
@@ -39,6 +45,7 @@ func wmaMatcher(buf []byte) bool {
 
 var jp2000Type = filetype.NewType("jp2", "image/jpeg")
 
+// jp2000Matcher matches JPEG 2000 signature box header.
 func jp2000Matcher(buf []byte) bool {
 	return len(buf) > 8 &&
 		buf[0] == 0x00 && buf[1] == 0x00 && buf[2] == 0x00 && buf[3] == 0x0C &&
@@ -49,6 +56,7 @@ func jp2000Matcher(buf []byte) bool {
 
 var pcxType = filetype.NewType("pcx", "image/x-pcx")
 
+// pcxMatcher matches ZSoft PCX header.
 func pcxMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x0A && buf[1] == 0x05 && buf[2] == 0x01 && buf[3] == 0x08
@@ -58,6 +66,7 @@ func pcxMatcher(buf []byte) bool {
 
 var aiType = filetype.NewType("ai", "application/postscript")
 
+// aiMatcher matches Adobe Illustrator (PDF-based) magic.
 func aiMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x25 && buf[1] == 0x50 && buf[2] == 0x44 && buf[3] == 0x46
@@ -67,6 +76,7 @@ func aiMatcher(buf []byte) bool {
 
 var epsType = filetype.NewType("eps", "application/postscript")
 
+// epsMatcher matches EPS PostScript header.
 func epsMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x25 && buf[1] == 0x21 && buf[2] == 0x50 && buf[3] == 0x53
@@ -76,6 +86,7 @@ func epsMatcher(buf []byte) bool {
 
 var inddType = filetype.NewType("indd", "application/x-indesign")
 
+// inddMatcher matches Adobe InDesign binary signature.
 func inddMatcher(buf []byte) bool {
 	return len(buf) > 8 &&
 		buf[0] == 0x06 && buf[1] == 0x06 && buf[2] == 0xED && buf[3] == 0xF5 && buf[4] == 0xD8 && buf[5] == 0x1D && buf[6] == 0x46 && buf[7] == 0xE5
@@ -83,6 +94,7 @@ func inddMatcher(buf []byte) bool {
 
 var prprojType = filetype.NewType("prproj", "application/x-prproj")
 
+// prprojMatcher matches Adobe Premiere Pro project marker.
 func prprojMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x50 && buf[1] == 0x52 && buf[2] == 0x50 && buf[3] == 0xA4
@@ -90,6 +102,7 @@ func prprojMatcher(buf []byte) bool {
 
 var xcfType = filetype.NewType("xcf", "image/x-xcf")
 
+// xcfMatcher matches GIMP XCF signature.
 func xcfMatcher(buf []byte) bool {
 	return len(buf) > 14 &&
 		buf[0] == 0x67 && buf[1] == 0x69 && buf[2] == 0x6D && buf[3] == 0x70 &&
@@ -101,6 +114,7 @@ func xcfMatcher(buf []byte) bool {
 
 var fbxType = filetype.NewType("fbx", "application/x-fbx")
 
+// fbxMatcher matches Autodesk FBX magic (Kaydara binary header).
 func fbxMatcher(buf []byte) bool {
 	return len(buf) > 21 &&
 		buf[0] == 0x4B && buf[1] == 0x61 && buf[2] == 0x79 && buf[3] == 0x64 &&
@@ -115,6 +129,7 @@ func fbxMatcher(buf []byte) bool {
 
 var flaType = filetype.NewType("fla", "application/x-fla")
 
+// flaMatcher matches ZIP-based Adobe FLA archives.
 func flaMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x50 && buf[1] == 0x4B && buf[2] == 0x03 && buf[3] == 0x04
@@ -122,6 +137,7 @@ func flaMatcher(buf []byte) bool {
 
 var swcType = filetype.NewType("swc", "application/x-swc")
 
+// swcMatcher matches ZIP-based SWC archives.
 func swcMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x50 && buf[1] == 0x4B && buf[2] == 0x03 && buf[3] == 0x04
@@ -129,6 +145,7 @@ func swcMatcher(buf []byte) bool {
 
 var mdbType = filetype.NewType("mdb", "application/x-msaccess")
 
+// mdbMatcher matches legacy Access MDB signature.
 func mdbMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x00 && buf[1] == 0x01 && buf[2] == 0x00 && buf[3] == 0x00
@@ -138,6 +155,7 @@ func mdbMatcher(buf []byte) bool {
 
 var accdbType = filetype.NewType("accdb", "application/x-msaccess-accdb")
 
+// accdbMatcher matches ZIP-based Access ACCDB files.
 func accdbMatcher(buf []byte) bool {
 	return len(buf) > 8 &&
 		buf[0] == 0x50 && buf[1] == 0x4B && buf[2] == 0x03 && buf[3] == 0x04
@@ -145,6 +163,7 @@ func accdbMatcher(buf []byte) bool {
 
 var pstType = filetype.NewType("pst", "application/x-pst")
 
+// pstMatcher matches Outlook PST magic.
 func pstMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x21 && buf[1] == 0x42 && buf[2] == 0x44 && buf[3] == 0x4E
@@ -152,6 +171,7 @@ func pstMatcher(buf []byte) bool {
 
 var pfxType = filetype.NewType("pfx", "application/x-pkcs12")
 
+// pfxMatcher matches PKCS#12 containers (PFX/P12).
 func pfxMatcher(buf []byte) bool {
 	return len(buf) > 2 &&
 		buf[0] == 0x30 && buf[1] == 0x82
@@ -159,6 +179,7 @@ func pfxMatcher(buf []byte) bool {
 
 var keyNoteType = filetype.NewType("key", "application/x-keynote")
 
+// keyNoteMatcher matches ZIP-based Keynote documents.
 func keyNoteMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x50 && buf[1] == 0x4B && buf[2] == 0x03 && buf[3] == 0x04
@@ -166,6 +187,7 @@ func keyNoteMatcher(buf []byte) bool {
 
 var dsaType = filetype.NewType("dsa", "application/x-dsa")
 
+// dsaMatcher matches ASN.1 SEQUENCE headers used by some DSA key blobs.
 func dsaMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x30 && buf[1] == 0x81 || buf[1] == 0x82
@@ -173,6 +195,7 @@ func dsaMatcher(buf []byte) bool {
 
 var aniType = filetype.NewType("ani", "application/x-ani")
 
+// aniMatcher matches RIFF-based Windows cursor/animation files.
 func aniMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x52 && buf[1] == 0x49 && buf[2] == 0x46 && buf[3] == 0x46
@@ -180,6 +203,7 @@ func aniMatcher(buf []byte) bool {
 
 var lnkType = filetype.NewType("lnk", "application/x-ms-shortcut")
 
+// lnkMatcher matches Windows Shell Link header.
 func lnkMatcher(buf []byte) bool {
 	return len(buf) > 4 &&
 		buf[0] == 0x4C && buf[1] == 0x00 && buf[2] == 0x00 && buf[3] == 0x00
@@ -187,6 +211,7 @@ func lnkMatcher(buf []byte) bool {
 
 var xmlType = filetype.NewType("xml", "application/xml")
 
+// xmlMatcher matches XML prolog.
 func xmlMatcher(buf []byte) bool {
 	return len(buf) > 5 &&
 		(buf[0] == 0x3C && buf[1] == 0x3F && buf[2] == 0x78 && buf[3] == 0x6D && buf[4] == 0x6C) // "<?xml"
@@ -194,6 +219,7 @@ func xmlMatcher(buf []byte) bool {
 
 var htmlType = filetype.NewType("html", "text/html")
 
+// htmlMatcher matches HTML doctype prefix.
 func htmlMatcher(buf []byte) bool {
 	return len(buf) > 15 &&
 		(buf[0] == 0x3C && buf[1] == 0x21 && buf[2] == 0x44 && buf[3] == 0x4F &&
@@ -203,6 +229,7 @@ func htmlMatcher(buf []byte) bool {
 
 var shType = filetype.NewType("sh", "application/x-sh")
 
+// shMatcher matches Unix shebang for shell scripts.
 func shMatcher(buf []byte) bool {
 	return len(buf) > 2 &&
 		(buf[0] == 0x23 && buf[1] == 0x21 && buf[2] == 0x2F) // "#!/"
@@ -210,6 +237,7 @@ func shMatcher(buf []byte) bool {
 
 var plistType = filetype.NewType("plist", "application/x-plist")
 
+// plistMatcher matches XML or binary property list headers.
 func plistMatcher(buf []byte) bool {
 	return len(buf) > 5 &&
 		(buf[0] == 0x3C && buf[1] == 0x3F && buf[2] == 0x70 && buf[3] == 0x6C) || (buf[0] == 0x62 && buf[1] == 0x70 && buf[2] == 0x6C && buf[3] == 0x69 && buf[4] == 0x73 && buf[5] == 0x74) // "<?plis"
@@ -217,6 +245,7 @@ func plistMatcher(buf []byte) bool {
 
 var torrentType = filetype.NewType("torrent", "application/x-bittorrent")
 
+// torrentMatcher matches bencoded torrent prefix.
 func torrentMatcher(buf []byte) bool {
 	return len(buf) > 3 &&
 		(buf[0] == 0x64 && buf[1] == 0x38 && buf[2] == 0x3A) // "d8"
@@ -224,6 +253,7 @@ func torrentMatcher(buf []byte) bool {
 
 var hdrType = filetype.NewType("hdr", "image/x-hdr")
 
+// hdrMatcher matches Radiance HDR header.
 func hdrMatcher(buf []byte) bool {
 	return len(buf) > 9 &&
 		(buf[0] == 0x23 && buf[1] == 0x3F && buf[2] == 0x52 && buf[3] == 0x41 && buf[4] == 0x44 && buf[5] == 0x49 && buf[6] == 0x41 && buf[7] == 0x4E && buf[8] == 0x43 && buf[9] == 0x45) // "#?RAD"
@@ -231,6 +261,7 @@ func hdrMatcher(buf []byte) bool {
 
 var nefType = filetype.NewType("nef", "image/x-raw-nef")
 
+// nefMatcher matches Nikon NEF (TIFF little-endian) prefix.
 func nefMatcher(buf []byte) bool {
 	return len(buf) > 3 &&
 		(buf[0] == 0x49 && buf[1] == 0x49 && buf[2] == 0x2A && buf[3] == 0x00) // "II*."
@@ -238,6 +269,7 @@ func nefMatcher(buf []byte) bool {
 
 var ds_storeType = filetype.NewType("ds_store", "application/x-dsstore")
 
+// ds_storeMatcher matches Apple .DS_Store header.
 func ds_storeMatcher(buf []byte) bool {
 	return len(buf) > 7 &&
 		// (buf[0] == 0x62 && buf[1] == 0x70 && buf[2] == 0x6C && buf[3] == 0x69 && buf[4] == 0x73) // "bplis"
@@ -246,11 +278,13 @@ func ds_storeMatcher(buf []byte) bool {
 
 var icmType = filetype.NewType("icm", "application/x-iccprofile")
 
+// icmMatcher matches ICC color profile header.
 func icmMatcher(buf []byte) bool {
 	return len(buf) > 3 &&
 		(buf[0] == 0x48 && buf[1] == 0x43 && buf[2] == 0x4D && buf[3] == 0x53) // "\x00\x00\x02\x00"
 }
 
+// RegisterCustomMatchers wires all custom signature matchers into filetype.
 func RegisterCustomMatchers() {
 	// Exemple d'ajout d'un matcher personnalisé pour les fichiers ".custom"
 	filetype.AddMatcher(dllType, dllMatcher)
