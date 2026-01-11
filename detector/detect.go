@@ -11,6 +11,5 @@ func Detect(path string) string {
 	if patternType != "other extension" {
 		return patternType
 	}
-
 	return "unknown"
 }

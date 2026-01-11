@@ -57,29 +57,34 @@ func CountFile(sourceDir string, stats *types.Stats) error {
 	})
 }
 
-func ScanDirectoryParallel(sourceDir string, stats *types.Stats, barUpdate func(), worker int) error {
+func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int) error {
 
 	fileCh := make(chan string, 100) // jusqu'a 100 fichiers en attente
 
 	var wg sync.WaitGroup // pour attendre la fin des goroutines
 
-	var mu sync.Mutex // pour protéger l'accès à stats
-
-	// Lancer les workers
-
 	for i := 0; i < worker; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
 			for path := range fileCh {
+
 				info, err := os.Stat(path)
 				if err != nil || info.IsDir() {
 					continue
 				}
 				fileType := detector.Detect(path)
-				mu.Lock()
-				stats.DetectedFileType[fileType]++
-				mu.Unlock()
+
+				result := types.Result{
+					Path: path,
+					Size: info.Size(),
+					Type: fileType,
+				}
+
+				collector.AddResult(result)
+				stats.AddFile(fileType, info.Size(), err != nil)
+
 				if barUpdate != nil {
 					barUpdate()
 				}
