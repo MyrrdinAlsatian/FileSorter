@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"FileRecoveryOrganizer/detector"
+	"FileRecoveryOrganizer/exporter"
 	"FileRecoveryOrganizer/scanner"
 	"FileRecoveryOrganizer/types"
 	"FileRecoveryOrganizer/utils"
@@ -29,7 +30,10 @@ func main() {
 	}
 
 	fmt.Println("Start directory scan :", sourceDir)
+	detector.RegisterCustomMatchers()
 
+	collector := scanner.NewCollector()
+	statsSafe := scanner.NewStats()
 	// Map pour compter les extensions de fichiers
 	stats := &types.Stats{
 		DetectedFileType: make(map[string]int),
@@ -41,7 +45,6 @@ func main() {
 		fmt.Println("Error during the file count process")
 		return
 	}
-	detector.RegisterCustomMatchers()
 
 	fmt.Printf(" ➡ Total files: %d, Total directories: %d\n", stats.TotalFiles, stats.TotalDirs)
 	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
@@ -49,7 +52,7 @@ func main() {
 
 	bar := scanner.CreateProgessBar(stats.TotalFiles)
 	//  Scan the directory and update progress bar
-	err = scanner.ScanDirectoryParallel(sourceDir, stats, func() {
+	err = scanner.ScanDirectoryParallel(sourceDir, collector, statsSafe, func() {
 		bar.Add(1)
 	}, 4)
 
@@ -58,19 +61,37 @@ func main() {
 		return
 	}
 
+	results := collector.GetResults()
+
+	exporter, err := exporter.NewJSONExporter("scan_results.jsonl")
+	if err != nil {
+		log.Fatalf("Failed to create JSON exporter: %v", err)
+	}
+	defer exporter.Close()
+	for _, result := range results {
+		if err := exporter.Write(result); err != nil {
+			log.Printf("Failed to write result for %s: %v", result.Path, err)
+		}
+	}
+	fmt.Println("📁 Export JSONL terminé :", len(results), "entrées")
 	// Affichage des résultats
 	fmt.Println("-------------------------")
 	fmt.Println("📊 Result summary :")
 	fmt.Println("-------------------------")
-	fmt.Printf("Total de fichiers: %d\n", stats.TotalFiles)
+	fmt.Printf("Total de fichiers: %d\n", statsSafe.TotalFiles)
 	fmt.Printf("Total de répertoires: %d\n", stats.TotalDirs)
-	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
+	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(statsSafe.TotalSize))
 	fmt.Println("Extensions de fichiers trouvées:")
 	// Tri et affichage des extensions
-	for fileType, count := range stats.DetectedFileType {
-		fmt.Printf(".%s, Nombre de fichiers: %d\n", fileType, count)
+	for fileType, count := range statsSafe.FilesByType {
+		fmt.Printf("%-10s %8d files  %10s\n",
+			fileType,
+			count,
+			utils.ReadableSize(statsSafe.BytesByType[fileType]),
+		)
 	}
 	fmt.Println("-------------------------")
+	fmt.Printf("Collected results: %d\n", len(results))
 }
 
 func detectFileType(filePath string) string {
