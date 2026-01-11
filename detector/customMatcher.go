@@ -94,7 +94,7 @@ var aiType = filetype.NewType("ai", "application/postscript")
 
 // aiMatcher matches Adobe Illustrator (PDF-based) magic.
 func aiMatcher(buf []byte) bool {
-	return hasPrefix(buf, 0x25, 0x50, 0x44, 0x46)
+	return hasPrefix(buf, 0x25, 0x50, 0x44, 0x46, 0x2D, 0x41) && !filetype.IsMIME(buf, "application/pdf") // "%PDF-A"
 	// &&
 	// buf[4] == 0x2D
 }
@@ -103,7 +103,7 @@ var epsType = filetype.NewType("eps", "application/postscript")
 
 // epsMatcher matches EPS PostScript header.
 func epsMatcher(buf []byte) bool {
-	return hasPrefix(buf, 0x25, 0x21, 0x50, 0x53)
+	return hasPrefix(buf, 0x25, 0x21, 0x50, 0x53, 0x2D) && !filetype.IsMIME(buf, "application/pdf")
 	// &&
 	// buf[4] == 0x2D
 }
@@ -180,13 +180,6 @@ var pfxType = filetype.NewType("pfx", "application/x-pkcs12")
 // pfxMatcher matches PKCS#12 containers (PFX/P12).
 func pfxMatcher(buf []byte) bool {
 	return hasPrefix(buf, 0x30, 0x82)
-}
-
-var keyNoteType = filetype.NewType("key", "application/x-keynote")
-
-// keyNoteMatcher matches ZIP-based Keynote documents.
-func keyNoteMatcher(buf []byte) bool {
-	return hasPrefix(buf, 0x50, 0x4B, 0x03, 0x04)
 }
 
 var dsaType = filetype.NewType("dsa", "application/x-dsa")
@@ -379,7 +372,6 @@ func RegisterCustomMatchers() {
 	filetype.AddMatcher(mdbType, mdbMatcher)
 	filetype.AddMatcher(accdbType, accdbMatcher)
 	filetype.AddMatcher(pfxType, pfxMatcher)
-	filetype.AddMatcher(keyNoteType, keyNoteMatcher)
 	filetype.AddMatcher(dsaType, dsaMatcher)
 	filetype.AddMatcher(aniType, aniMatcher)
 	filetype.AddMatcher(lnkType, lnkMatcher)
