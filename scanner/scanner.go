@@ -7,7 +7,10 @@ import (
 	"sync"
 
 	"FileRecoveryOrganizer/detector"
+	"FileRecoveryOrganizer/enricher"
 	"FileRecoveryOrganizer/types"
+
+	"github.com/h2non/filetype"
 )
 
 type Result = types.Result
@@ -85,7 +88,9 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					Size: info.Size(),
 					Type: fileType,
 				}
-
+				if filetype.IsImage([]byte(path)) {
+					enricher.EnrichImage(&result)
+				}
 				collector.Results <- result
 
 				if barUpdate != nil {
