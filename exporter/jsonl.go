@@ -12,6 +12,61 @@ type JSONExporter struct {
 	file   *os.File
 }
 
+func StreamJSONL(path string, results <-chan types.Result) error {
+	f, error := os.Create(path)
+	if error != nil {
+		return error
+	}
+	defer f.Close()
+
+	writer := bufio.NewWriterSize(f, 64*1024) // 64KB buffer
+	defer writer.Flush()
+
+	for result := range results {
+		data, err := json.Marshal(result)
+		if err != nil {
+			continue
+		}
+		writer.Write(data)
+		writer.WriteByte('\n')
+	}
+
+	return nil
+}
+
+func StreamJSONLWithFilter(path string, results <-chan types.Result, filter ...Filter) error {
+	f, error := os.Create(path)
+	if error != nil {
+		return error
+	}
+	defer f.Close()
+
+	writer := bufio.NewWriterSize(f, 64*1024) // 64KB buffer
+	defer writer.Flush()
+
+	for result := range results {
+		skip := false
+		for _, f := range filter {
+			if !f(result) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
+		data, err := json.Marshal(result)
+		if err != nil {
+			continue
+		}
+		writer.Write(data)
+		writer.WriteByte('\n')
+	}
+
+	return nil
+}
+
 func NewJSONExporter(filePath string) (*JSONExporter, error) {
 	file, err := os.Create(filePath)
 	if err != nil {

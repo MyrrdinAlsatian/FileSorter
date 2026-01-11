@@ -9,11 +9,11 @@ type Stats struct {
 }
 
 type Result struct {
-	Path   string
-	Size   int64
-	Type   string
-	Method string
-	Error  string
+	Path   string `json:"path"`
+	Size   int64  `json:"size"`
+	Type   string `json:"type"`
+	Method string `json:"method"`
+	Error  string `json:"error,omitempty"`
 }
 
 type StatsFile struct {

@@ -10,6 +10,8 @@ import (
 	"FileRecoveryOrganizer/types"
 )
 
+type Result = types.Result
+
 func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error {
 
 	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
@@ -76,14 +78,15 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 				}
 				fileType := detector.Detect(path)
 
+				stats.AddFile(fileType, info.Size(), err != nil)
+
 				result := types.Result{
 					Path: path,
 					Size: info.Size(),
 					Type: fileType,
 				}
 
-				collector.AddResult(result)
-				stats.AddFile(fileType, info.Size(), err != nil)
+				collector.Results <- result
 
 				if barUpdate != nil {
 					barUpdate()
@@ -102,8 +105,8 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 		return nil
 	})
 
-	close(fileCh) // fermer le canal après avoir envoyé tous les fichiers
-	wg.Wait()     // attendre que tous les workers aient terminé
-
+	close(fileCh)            // fermer le canal après avoir envoyé tous les fichiers
+	wg.Wait()                // attendre que tous les workers aient terminé
+	close(collector.Results) // fermer le canal des résultats
 	return err
 }
