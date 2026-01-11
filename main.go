@@ -18,6 +18,11 @@ func main() {
 
 	var sourceDir string
 
+	opts := utils.ParseFlags()
+	if opts.SourceDir != "" {
+		sourceDir = opts.SourceDir
+	}
+
 	if len(os.Args) > 1 {
 		sourceDir = os.Args[1]
 	} else {
@@ -32,8 +37,13 @@ func main() {
 	fmt.Println("Start directory scan :", sourceDir)
 	detector.RegisterCustomMatchers()
 
-	collector := scanner.NewCollector()
+	collector := scanner.NewCollector(1024)
 	statsSafe := scanner.NewStats()
+
+	if opts.ExportPath != "" {
+		fmt.Println("Export path set to:", opts.ExportPath)
+		go exporter.StreamJSONLWithFilter(opts.ExportPath, collector.Results)
+	}
 	// Map pour compter les extensions de fichiers
 	stats := &types.Stats{
 		DetectedFileType: make(map[string]int),
@@ -61,14 +71,14 @@ func main() {
 		return
 	}
 
-	results := collector.GetResults()
+	results := collector.Results
 
 	exporter, err := exporter.NewJSONExporter("scan_results.jsonl")
 	if err != nil {
 		log.Fatalf("Failed to create JSON exporter: %v", err)
 	}
 	defer exporter.Close()
-	for _, result := range results {
+	for result := range results {
 		if err := exporter.Write(result); err != nil {
 			log.Printf("Failed to write result for %s: %v", result.Path, err)
 		}
