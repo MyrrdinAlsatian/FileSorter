@@ -8,12 +8,19 @@ type Stats struct {
 	DetectedFileType map[string]int
 }
 
+type ImageMetadata struct {
+	DateTaken    string  `json:"date_taken,omitempty"`
+	CameraModel  string  `json:"camera_model,omitempty"`
+	GPSLatitude  float64 `json:"lat,omitempty"`
+	GPSLongitude float64 `json:"lon,omitempty"`
+}
+
 type Result struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	Type   string `json:"type"`
-	Method string `json:"method"`
-	Error  string `json:"error,omitempty"`
+	Path  string         `json:"path"`
+	Size  int64          `json:"size"`
+	Type  string         `json:"type"`
+	Image *ImageMetadata `json:"image_metadata,omitempty"`
+	Error string         `json:"error,omitempty"`
 }
 
 type StatsFile struct {
