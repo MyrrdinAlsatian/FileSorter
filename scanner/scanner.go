@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"FileRecoveryOrganizer/classifier"
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/enricher"
 	"FileRecoveryOrganizer/types"
@@ -90,6 +91,7 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 				if fileType == "jpg" || fileType == "jpeg" || fileType == "png" || fileType == "tiff" || fileType == "heic" {
 					enricher.EnrichImage(&result)
 				}
+				classifier.Classify(&result)
 				collector.Results <- result
 
 				if barUpdate != nil {
