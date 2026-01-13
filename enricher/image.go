@@ -1,7 +1,12 @@
 package enricher
 
 import (
+	"image"
 	"os"
+
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 
 	"FileRecoveryOrganizer/types"
 
@@ -23,6 +28,13 @@ func EnrichImage(res *types.Result) {
 	meta := &types.ImageMeta{
 		HasExif: true,
 	}
+
+	if cfg, _, err := image.DecodeConfig(f); err == nil {
+		meta.Width = cfg.Width
+		meta.Height = cfg.Height
+	}
+	_, _ = f.Seek(0, 0) // Reset file pointer
+
 	iexif := &types.ImageExif{}
 
 	if camModel, err := x.Get(exif.Model); err == nil {
