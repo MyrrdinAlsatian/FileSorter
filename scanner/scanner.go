@@ -9,8 +9,6 @@ import (
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/enricher"
 	"FileRecoveryOrganizer/types"
-
-	"github.com/h2non/filetype"
 )
 
 type Result = types.Result
@@ -88,7 +86,8 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					Size: info.Size(),
 					Type: fileType,
 				}
-				if filetype.IsImage([]byte(path)) {
+				// Enrichir les images avec les métadonnées EXIF
+				if fileType == "jpg" || fileType == "jpeg" || fileType == "png" || fileType == "tiff" || fileType == "heic" {
 					enricher.EnrichImage(&result)
 				}
 				collector.Results <- result
