@@ -15,6 +15,15 @@ type ImageExif struct {
 	GPSLongitude float64 `json:"lon,omitempty"`
 }
 
+type ImageMeta struct {
+	Width   int
+	Height  int
+	HasExif bool
+
+	IsThumb bool
+	Reason  string
+}
+
 type Result struct {
 	Path  string     `json:"path"`
 	Size  int64      `json:"size"`
