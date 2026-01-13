@@ -90,6 +90,8 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 				// Enrichir les images avec les métadonnées EXIF
 				if fileType == "jpg" || fileType == "jpeg" || fileType == "png" || fileType == "tiff" || fileType == "heic" {
 					enricher.EnrichImage(&result)
+					detector.DetectAssetImg(path, info.Size(), result.Image)
+					detector.DetectThumbnail(path, info.Size(), result.Image)
 				}
 				classifier.Classify(&result)
 				collector.Results <- result

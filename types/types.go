@@ -22,6 +22,7 @@ type ImageMeta struct {
 	Exif    *ImageExif
 
 	IsThumb bool
+	IsAsset bool
 	Reason  string
 }
 
