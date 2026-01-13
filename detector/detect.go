@@ -2,6 +2,9 @@ package detector
 
 func Detect(path string) string {
 	typeOrExt := detectFileType(path)
+	if typeOrExt == "" {
+		return "unknown"
+	}
 	if typeOrExt != "other extension" {
 		return typeOrExt
 	}

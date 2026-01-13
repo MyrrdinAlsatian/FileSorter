@@ -30,9 +30,11 @@ func detectFileType(path string) string {
 
 	buf := bufferPool.Get().([]byte)
 	n, err := f.Read(buf)
+
 	defer bufferPool.Put(buf)
 
-	if err != nil && err != io.EOF {
+	if err != nil && err != io.EOF || n == 0 {
+		bufferPool.Put(buf)
 		return "Error reading file"
 	}
 
@@ -43,5 +45,10 @@ func detectFileType(path string) string {
 	if kind != filetype.Unknown {
 		return kind.Extension
 	}
-	return filepath.Ext(path)[1:] // return extension without dot
+	// Safe extension extraction
+	ext := filepath.Ext(path)
+	if len(ext) > 1 {
+		return ext[1:] // return extension without dot
+	}
+	return detectPattern(buf[:n]) // fallback to pattern detection
 }

@@ -9,6 +9,9 @@ import (
 
 // hasPrefix returns true when buf starts with the provided byte sequence.
 func hasPrefix(buf []byte, prefix ...byte) bool {
+	if len(buf) == 0 {
+		return false
+	}
 	if len(buf) < len(prefix) {
 		return false
 	}
