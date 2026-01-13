@@ -20,7 +20,7 @@ func EnrichImage(res *types.Result) {
 		return
 	}
 
-	meta := &types.ImageMetadata{}
+	meta := &types.ImageExif{}
 
 	if camModel, err := x.Get(exif.Model); err == nil {
 		meta.CameraModel, _ = camModel.StringVal()
