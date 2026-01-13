@@ -20,20 +20,24 @@ func EnrichImage(res *types.Result) {
 		return
 	}
 
-	meta := &types.ImageExif{}
+	meta := &types.ImageMeta{
+		HasExif: true,
+	}
+	iexif := &types.ImageExif{}
 
 	if camModel, err := x.Get(exif.Model); err == nil {
-		meta.CameraModel, _ = camModel.StringVal()
+		iexif.CameraModel, _ = camModel.StringVal()
 	}
 
 	if dt, err := x.Get(exif.DateTimeOriginal); err == nil {
-		meta.DateTaken, _ = dt.StringVal()
+		iexif.DateTaken, _ = dt.StringVal()
 	}
 
 	if lat, lon, err := x.LatLong(); err == nil {
-		meta.GPSLatitude = lat
-		meta.GPSLongitude = lon
+		iexif.GPSLatitude = lat
+		iexif.GPSLongitude = lon
 	}
 
+	meta.Exif = iexif
 	res.Image = meta
 }
