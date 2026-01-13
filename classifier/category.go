@@ -57,7 +57,7 @@ func Classify(r *types.Result) {
 	case "ppt", "pptx", "odp":
 		r.TargetPath = "documents/presentations/" + r.Type
 	// Archives
-	case "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "jar", "swc":
+	case "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "jar", "swc", "cab", "iso":
 		r.TargetPath = "archives/" + r.Type
 
 	// Databases
@@ -65,11 +65,11 @@ func Classify(r *types.Result) {
 		r.TargetPath = "databases/" + r.Type
 
 	// Code & Scripts
-	case "html", "htm", "css", "json", "xml", "yaml", "yml", "js", "ts", "jsx", "tsx", "py", "pyc", "java", "class", "c", "cpp", "h", "hpp", "go", "rs", "rb", "php", "pl", "sh", "bash":
+	case "html", "htm", "css", "json", "xml", "yaml", "yml", "js", "ts", "jsx", "tsx", "py", "pyc", "java", "class", "c", "cpp", "h", "hpp", "go", "rs", "rb", "php", "pl", "sh", "bash", "pm", "jsp":
 		r.TargetPath = "code/" + r.Type
 
 	// Executables
-	case "exe", "dll", "so", "dylib", "app", "msi":
+	case "exe", "dll", "so", "dylib", "app", "msi", "bat", "cmd", "com":
 		r.TargetPath = "executables/" + r.Type
 
 	// Certificates & Security
@@ -109,6 +109,6 @@ func Classify(r *types.Result) {
 		r.TargetPath = "video-projects"
 
 	default:
-		r.TargetPath = "others"
+		r.TargetPath = "others/" + r.Type
 	}
 }
