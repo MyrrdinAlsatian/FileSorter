@@ -19,17 +19,19 @@ type ImageMeta struct {
 	Width   int
 	Height  int
 	HasExif bool
+	Exif    *ImageExif
 
 	IsThumb bool
 	Reason  string
 }
 
 type Result struct {
-	Path  string     `json:"path"`
-	Size  int64      `json:"size"`
-	Type  string     `json:"type"`
-	Image *ImageExif `json:"image_exif,omitempty"`
-	Error string     `json:"error,omitempty"`
+	Path       string     `json:"path"`
+	Size       int64      `json:"size"`
+	Type       string     `json:"type"`
+	Image      *ImageMeta `json:"image_exif,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	TargetPath string     `json:"target_path,omitempty"`
 }
 
 type StatsFile struct {
