@@ -93,7 +93,8 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					enricher.EnrichImage(&result)
 					detector.DetectAssetImg(path, info.Size(), result.Image)
 					detector.DetectThumbnail(path, info.Size(), result.Image)
-					result.Date = metadata.BestDate(path, true)
+					fileDate := metadata.BestDate(path, true)
+					result.Date = &fileDate
 				}
 				classifier.Classify(&result)
 				collector.Results <- result
