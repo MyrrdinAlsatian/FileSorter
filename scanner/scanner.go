@@ -87,6 +87,18 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					Path: path,
 					Size: info.Size(),
 					Type: fileType,
+					Date: &metadata.FileData{},
+				}
+				meta := metadata.GetFileMeta(path, fileType)
+
+				if meta.OriginalName != "" {
+					result.Date.OriginalName = meta.OriginalName
+					result.Date.Source = meta.Source
+				}
+				if meta.Time != nil {
+					result.Date.Time = *meta.Time
+					result.Date.Source = meta.Source
+					result.Date.Valid = true
 				}
 				// Enrichir les images avec les métadonnées EXIF
 				if fileType == "jpg" || fileType == "jpeg" || fileType == "png" || fileType == "tiff" || fileType == "heic" {
@@ -94,7 +106,8 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					detector.DetectAssetImg(path, info.Size(), result.Image)
 					detector.DetectThumbnail(path, info.Size(), result.Image)
 					fileDate := metadata.BestDate(path, true)
-					result.Date = &fileDate
+					result.Date = new(metadata.FileData)
+					*result.Date = fileDate
 				}
 				classifier.Classify(&result)
 				collector.Results <- result
