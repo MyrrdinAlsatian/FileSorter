@@ -9,6 +9,7 @@ import (
 	"FileRecoveryOrganizer/classifier"
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/enricher"
+	"FileRecoveryOrganizer/metadata"
 	"FileRecoveryOrganizer/types"
 )
 
@@ -92,6 +93,7 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					enricher.EnrichImage(&result)
 					detector.DetectAssetImg(path, info.Size(), result.Image)
 					detector.DetectThumbnail(path, info.Size(), result.Image)
+					result.Date = metadata.BestDate(path, true)
 				}
 				classifier.Classify(&result)
 				collector.Results <- result
