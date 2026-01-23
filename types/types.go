@@ -1,5 +1,7 @@
 package types
 
+import "FileRecoveryOrganizer/metadata"
+
 type Stats struct {
 	TotalFiles int
 	TotalDirs  int
@@ -27,12 +29,13 @@ type ImageMeta struct {
 }
 
 type Result struct {
-	Path       string     `json:"path"`
-	Size       int64      `json:"size"`
-	Type       string     `json:"type"`
-	Image      *ImageMeta `json:"image_exif,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	TargetPath string     `json:"target_path,omitempty"`
+	Path       string            `json:"path"`
+	Size       int64             `json:"size"`
+	Type       string            `json:"type"`
+	Image      *ImageMeta        `json:"image_exif,omitempty"`
+	Error      string            `json:"error,omitempty"`
+	TargetPath string            `json:"target_path,omitempty"`
+	Date       metadata.FileData `json:"date,omitempty"`
 }
 
 type StatsFile struct {
