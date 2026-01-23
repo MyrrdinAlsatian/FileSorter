@@ -37,9 +37,3 @@ type Result struct {
 	TargetPath string             `json:"target_path,omitempty"`
 	Date       *metadata.FileData `json:"date,omitempty"`
 }
-
-type StatsFile struct {
-	FilesByType map[string]int64
-	BytesByType map[string]int64
-	Errors      int64
-}
