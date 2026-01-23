@@ -1,3 +1,13 @@
+// Package scanner gère le parcours des répertoires et le traitement des fichiers.
+//
+// Ce package est responsable de :
+// - Parcourir les répertoires source
+// - Détecter les types de fichiers
+// - Enrichir les données des fichiers avec les métadonnées
+// - Classer les fichiers selon leur type
+//
+// Les fichiers sont traités de manière parallèle en utilisant des goroutines
+// pour améliorer les performances lors du traitement d'un grand nombre de fichiers.
 package scanner
 
 import (
@@ -13,8 +23,22 @@ import (
 	"FileRecoveryOrganizer/types"
 )
 
+// Result est un alias vers types.Result pour simplifier les imports
 type Result = types.Result
 
+// ScanDirectory parcourt un répertoire de manière synchrone (bloquante).
+//
+// Cette fonction utilise filepath.WalkDir pour parcourir tous les fichiers
+// du répertoire source. Elle est simple mais plus lente que ScanDirectoryParallel
+// car elle traite les fichiers un par un.
+//
+// Paramètres :
+//   - sourceDir : le chemin du répertoire à parcourir
+//   - stats : pointeur vers la structure Statistics pour accumuler les statistiques
+//   - barUpdate : fonction de rappel appelée après chaque fichier traité
+//
+// Note : Cette fonction n'est pas utilisée dans la version parallèle.
+// Voir ScanDirectoryParallel pour une version plus performante.
 func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error {
 
 	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
@@ -42,6 +66,22 @@ func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error
 	return nil
 }
 
+// CountFile compte tous les fichiers et calcule la taille totale d'un répertoire.
+//
+// Cette fonction parcourt le répertoire source et accumule :
+// - Le nombre total de fichiers
+// - Le nombre total de répertoires
+// - La taille totale en octets
+//
+// Elle est généralement appelée avant ScanDirectoryParallel pour obtenir
+// une indication du nombre de fichiers à traiter.
+//
+// Paramètres :
+//   - sourceDir : le chemin du répertoire à analyser
+//   - stats : pointeur vers la structure Statistics à mettre à jour
+//
+// Retour :
+//   - error : une erreur en cas de problème lors du parcours
 func CountFile(sourceDir string, stats *types.Stats) error {
 	return filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -62,32 +102,75 @@ func CountFile(sourceDir string, stats *types.Stats) error {
 	})
 }
 
+// ScanDirectoryParallel parcourt un répertoire en utilisant des goroutines pour le traitement parallèle.
+//
+// CONCEPTS CLE :
+// - Goroutines : fonction légère exécutée en parallèle (équivalent Go des threads)
+// - Canaux (channels) : permettent la communication sécurisée entre goroutines
+// - WaitGroup : synchronise l'attente de plusieurs goroutines
+// - Mutex : assure que seule une goroutine accède aux données à la fois
+//
+// FONCTIONNEMENT :
+// 1. Lance plusieurs workers (goroutines) qui attendent des chemins de fichiers
+// 2. Utilise un canal pour envoyer les chemins aux workers
+// 3. Chaque worker traite son fichier indépendamment
+// 4. Les résultats sont envoyés dans le canal Results
+//
+// AVANTAGES :
+// - Traitement simultané de plusieurs fichiers
+// - Meilleur usage des CPU multi-cœurs
+// - Performances améliorées sur de gros volumes
+//
+// Paramètres :
+//   - sourceDir : chemin du répertoire à parcourir
+//   - collector : collecteur de résultats avec un canal Results
+//   - stats : statistiques thread-safe
+//   - barUpdate : fonction de callback pour mettre à jour la progression
+//   - worker : nombre de goroutines workers à lancer
+//
+// Retour :
+//   - error : erreur lors du parcours du répertoire
 func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int) error {
 
-	fileCh := make(chan string, 100) // jusqu'a 100 fichiers en attente
+	// Canal pour envoyer les chemins de fichiers aux workers
+	// Buffer de 100 permet à plusieurs fichiers d'être en attente
+	fileCh := make(chan string, 100)
 
-	var wg sync.WaitGroup // pour attendre la fin des goroutines
+	// WaitGroup pour synchroniser l'attente des workers
+	// sync.WaitGroup compte les goroutines actives et attend leur fin
+	var wg sync.WaitGroup
 
+	// Lance le nombre de workers demandés
 	for i := 0; i < worker; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Add(1) // Ajoute 1 à la liste d'attente
 
+		// go : mot-clé pour créer une goroutine
+		// La goroutine exécutera la fonction de manière asynchrone
+		go func() {
+			defer wg.Done() // Marque cette goroutine comme terminée
+
+			// Boucle qui reçoit les chemins du canal fileCh
+			// range sur un canal recevra les valeurs jusqu'à sa fermeture
 			for path := range fileCh {
 
+				// Récupère les informations du fichier
 				info, err := os.Stat(path)
 				if err != nil || info.IsDir() {
-					continue
+					continue // Saute ce fichier s'il y a erreur ou si c'est un répertoire
 				}
+
+				// Détecte le type de fichier (jpg, pdf, mp4, etc.)
 				fileType := detector.Detect(path)
 
+				// Ajoute une statistique de manière thread-safe
 				stats.AddFile(fileType, info.Size(), err != nil)
 
+				// Crée un nouveau résultat pour ce fichier
 				result := types.Result{
 					Path: path,
 					Size: info.Size(),
 					Type: fileType,
-					Date: &metadata.FileData{},
+					Date: &metadata.FileData{}, // Initialise un pointeur vers une structure FileData vide
 				}
 
 				// Enrichir les images avec les métadonnées EXIF
@@ -111,9 +194,13 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					}
 				}
 
+				// Classe le fichier dans une catégorie
 				classifier.Classify(&result)
+
+				// Envoie le résultat dans le canal Results
 				collector.Results <- result
 
+				// Appelle le callback pour mettre à jour la barre de progression
 				if barUpdate != nil {
 					barUpdate()
 				}
@@ -127,12 +214,13 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 			return nil
 		}
 
+		// Envoie le chemin au canal (sera reçu par un worker)
 		fileCh <- path
 		return nil
 	})
 
-	close(fileCh)            // fermer le canal après avoir envoyé tous les fichiers
-	wg.Wait()                // attendre que tous les workers aient terminé
-	close(collector.Results) // fermer le canal des résultats
+	close(fileCh)            // Ferme le canal - cela signale aux workers qu'il n'y a plus de fichiers
+	wg.Wait()                // Attend que tous les workers aient terminé
+	close(collector.Results) // Ferme le canal des résultats
 	return err
 }
