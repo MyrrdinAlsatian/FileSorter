@@ -55,6 +55,7 @@ func GetFileMeta(path string, fileType string) *FileData {
 	// Pour les autres types (audio, vidéo, etc.) : extraire les tags
 	// Les tags ID3 sont des métadonnées dans les fichiers audio
 	metaTags, err := tag.ReadFrom(f)
+	meta.AdditionalInfo = make(map[string]string)
 	if err != nil {
 		return meta
 	}
@@ -71,6 +72,18 @@ func GetFileMeta(path string, fileType string) *FileData {
 		meta.Source = "tag:Year"
 		meta.Valid = true
 	}
-
+	// Ajouter des informations supplémentaires
+	if artist := metaTags.Artist(); artist != "" {
+		meta.AdditionalInfo["Artist"] = artist
+	}
+	if album := metaTags.Album(); album != "" {
+		meta.AdditionalInfo["Album"] = album
+	}
+	if genre := metaTags.Genre(); genre != "" {
+		meta.AdditionalInfo["Genre"] = genre
+	}
+	if typeFile := metaTags.FileType(); typeFile != "" {
+		meta.AdditionalInfo["FileType"] = string(typeFile)
+	}
 	return meta
 }
