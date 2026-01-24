@@ -1,3 +1,5 @@
+package mp4
+
 // Package mp4 extrait les métadonnées des fichiers vidéo MP4.
 //
 // CONCEPT : Parsing binaire avec structure d'atomes
@@ -12,18 +14,17 @@
 // ┌─ ftyp (file type)
 // ├─ mdat (media data - les vidéos/audios)
 // └─ moov (movie metadata)
-//    ├─ mvhd (movie header - durée, timescale)
-//    ├─ trak (track)
-//    │  ├─ tkhd (track header - dimensions)
-//    │  └─ mdia (media)
-//    └─ ...
+//
+//	├─ mvhd (movie header - durée, timescale)
+//	├─ trak (track)
+//	│  ├─ tkhd (track header - dimensions)
+//	│  └─ mdia (media)
+//	└─ ...
 //
 // Cette structure permet au lecteur de sauter les données sans les traiter.
-//
-package mp4
 
 import (
-	"encoding/binary""
+	"encoding/binary"
 	"io"
 	"os"
 	"time"
@@ -34,12 +35,12 @@ import (
 // Ces données permettent de connaître les caractéristiques vidéo sans décoder
 // la vidéo complète (qui prendrait beaucoup de temps).
 type MP4Metadata struct {
-	Title    string        `json:"title,omitempty"`  // Titre de la vidéo
-	Width    int           `json:"width,omitempty"`  // Largeur en pixels
-	Height   int           `json:"height,omitempty"` // Hauteur en pixels
+	Title    string        `json:"title,omitempty"`    // Titre de la vidéo
+	Width    int           `json:"width,omitempty"`    // Largeur en pixels
+	Height   int           `json:"height,omitempty"`   // Hauteur en pixels
 	Duration time.Duration `json:"duration,omitempty"` // Durée totale
-	Date     time.Time     `json:"date,omitempty"`   // Date de création
-	Valid    bool          `json:"valid"`            // Indique si les données sont valides
+	Date     time.Time     `json:"date,omitempty"`     // Date de création
+	Valid    bool          `json:"valid"`              // Indique si les données sont valides
 }
 
 // Constantes des identifiants de boîtes MP4
