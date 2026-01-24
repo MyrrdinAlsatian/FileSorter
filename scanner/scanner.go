@@ -167,10 +167,10 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 
 				// Crée un nouveau résultat pour ce fichier
 				result := types.Result{
-					Path: path,
-					Size: info.Size(),
-					Type: fileType,
-					Date: &metadata.FileData{}, // Initialise un pointeur vers une structure FileData vide
+					Path:           path,
+					Size:           info.Size(),
+					Type:           fileType,
+					AdditionalInfo: &metadata.FileData{}, // Initialise un pointeur vers une structure FileData vide
 				}
 
 				// Enrichir les images avec les métadonnées EXIF
@@ -179,18 +179,18 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					detector.DetectAssetImg(path, info.Size(), result.Image)
 					detector.DetectThumbnail(path, info.Size(), result.Image)
 					fileDate := metadata.BestDate(path, true)
-					result.Date = &fileDate
+					result.AdditionalInfo = &fileDate
 				} else {
 					// Pour les autres types (audio, vidéo, etc.)
 					meta := metadata.GetFileMeta(path, fileType)
 					if meta.OriginalName != "" {
-						result.Date.OriginalName = meta.OriginalName
-						result.Date.Source = meta.Source
+						result.AdditionalInfo.OriginalName = meta.OriginalName
+						result.AdditionalInfo.Source = meta.Source
 					}
 					if meta.Valid {
-						result.Date.Time = meta.Time
-						result.Date.Source = meta.Source
-						result.Date.Valid = true
+						result.AdditionalInfo.Time = meta.Time
+						result.AdditionalInfo.Source = meta.Source
+						result.AdditionalInfo.Valid = true
 					}
 				}
 

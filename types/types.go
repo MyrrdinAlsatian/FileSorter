@@ -56,11 +56,11 @@ type ImageMeta struct {
 //
 // Chaque résultat peut être sérialisé en JSON pour export.
 type Result struct {
-	Path       string             `json:"path"`                  // Chemin complet du fichier
-	Size       int64              `json:"size"`                  // Taille en octets
-	Type       string             `json:"type"`                  // Type détecté (jpg, pdf, mp4, etc.)
-	Image      *ImageMeta         `json:"image_exif,omitempty"`  // Métadonnées image (nil si pas une image)
-	Error      string             `json:"error,omitempty"`       // Message d'erreur si problème
-	TargetPath string             `json:"target_path,omitempty"` // Chemin de destination classifié
-	Date       *metadata.FileData `json:"date,omitempty"`        // Métadonnées de date extraites
+	Path           string             `json:"path"`                      // Chemin complet du fichier
+	Size           int64              `json:"size"`                      // Taille en octets
+	Type           string             `json:"type"`                      // Type détecté (jpg, pdf, mp4, etc.)
+	Image          *ImageMeta         `json:"image_exif,omitempty"`      // Métadonnées image (nil si pas une image)
+	Error          string             `json:"error,omitempty"`           // Message d'erreur si problème
+	TargetPath     string             `json:"target_path,omitempty"`     // Chemin de destination classifié
+	AdditionalInfo *metadata.FileData `json:"additional_info,omitempty"` // Métadonnées de date extraites
 }
