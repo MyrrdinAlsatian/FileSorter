@@ -66,4 +66,8 @@ type FileData struct {
 	// Valid indique si les données sont valides et complètes
 	// Certaines sources peuvent retourner une structure vide avec Valid=false
 	Valid bool `json:"valid,omitempty"`
+
+	// AdditionalInfo peut contenir des informations supplémentaires
+	// sous forme de paires clé-valeur (map[string]string)
+	AdditionalInfo map[string]string `json:"additional_info,omitempty"`
 }
