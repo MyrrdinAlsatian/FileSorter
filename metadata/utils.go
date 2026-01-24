@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"FileRecoveryOrganizer/metadata/mkv"
 	"FileRecoveryOrganizer/metadata/mp4"
 	"fmt"
 	"os"
@@ -92,6 +93,12 @@ func GetFileMeta(path string, fileType string) *FileData {
 		if err == nil && mp4Meta != nil {
 			// Convert mp4.MP4Metadata to string for AdditionalInfo
 			meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
+		}
+	}
+	if fileType == "mkv" {
+		mkvTitle, ok := mkv.Parse([]byte(path))
+		if ok && mkvTitle != "" {
+			meta.AdditionalInfo["Video"] = fmt.Sprintf("title=%s;valid=true;source=mkv:title", mkvTitle)
 		}
 	}
 
