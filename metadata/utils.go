@@ -16,15 +16,21 @@ import (
 //
 // Cette fonction centralise la détection et l'extraction de métadonnées :
 // - Images (jpg, png, etc.) : extrait les données EXIF
-// - Audio/Vidéo (mp3, mp4, etc.) : extrait les tags ID3 (titre, année, etc.)
+// - Audio/Vidéo (mp3, mp4, mkv, etc.) : extrait les tags ID3 et métadonnées vidéo
+//
+// EXTENSION : Par rapport à la version précédente, cette fonction enrichit maintenant
+// les données avec un map AdditionalInfo contenant :
+// - Artist, Album, Genre, FileType pour l'audio
+// - Données vidéo MP4 (dimensions, durée)
+// - Titre MKV pour les vidéos Matroska
 //
 // CONCEPT d'abstraction : Cette fonction cache les détails d'implémentation.
-// L'appelant n'a pas besoin de savoir comment fonctionnent EXIF ou ID3,
-// il reçoit simplement une structure FileData.
+// L'appelant n'a pas besoin de savoir comment fonctionnent EXIF, ID3 ou les parsers vidéo,
+// il reçoit simplement une structure FileData enrichie.
 //
 // Paramètres :
 //   - path : chemin complet vers le fichier
-//   - fileType : type/extension du fichier (ex: "jpg", "mp3")
+//   - fileType : type/extension du fichier (ex: "jpg", "mp3", "mp4", "mkv")
 //
 // Retour :
 //   - *FileData : pointeur vers la structure contenant les métadonnées
@@ -56,9 +62,10 @@ func GetFileMeta(path string, fileType string) *FileData {
 	}
 
 	// Pour les autres types (audio, vidéo, etc.) : extraire les tags
-	// Les tags ID3 sont des métadonnées dans les fichiers audio
+	// Les tags ID3 sont des métadonnées standardisées dans les fichiers audio
 	metaTags, err := tag.ReadFrom(f)
-	meta.AdditionalInfo = make(map[string]string)
+	meta.AdditionalInfo = make(map[string]string) // Initialiser la map pour les données supplémentaires
+
 	if err != nil {
 		return meta
 	}
@@ -75,7 +82,9 @@ func GetFileMeta(path string, fileType string) *FileData {
 		meta.Source = "tag:Year"
 		meta.Valid = true
 	}
-	// Ajouter des informations supplémentaires
+
+	// Ajouter des informations supplémentaires en tant que key-value
+	// Cette map permet de stocker des données optionnelles sans modifier la structure FileData
 	if artist := metaTags.Artist(); artist != "" {
 		meta.AdditionalInfo["Artist"] = artist
 	}
@@ -88,16 +97,22 @@ func GetFileMeta(path string, fileType string) *FileData {
 	if typeFile := metaTags.FileType(); typeFile != "" {
 		meta.AdditionalInfo["FileType"] = string(typeFile)
 	}
+
+	// Traitement spécial pour MP4 : extraire les métadonnées vidéo
 	if fileType == "mp4" {
 		mp4Meta, err := mp4.Parse(path)
 		if err == nil && mp4Meta != nil {
-			// Convert mp4.MP4Metadata to string for AdditionalInfo
+			// Convertir les métadonnées MP4 en string pour le stockage dans la map
+			// %+v affiche la structure avec les noms des champs
 			meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
 		}
 	}
+
+	// Traitement spécial pour MKV : extraire le titre de la vidéo Matroska
 	if fileType == "mkv" {
 		mkvTitle, ok := mkv.Parse([]byte(path))
 		if ok && mkvTitle != "" {
+			// Stocker le titre MKV et les métadonnées dans un format lisible
 			meta.AdditionalInfo["Video"] = fmt.Sprintf("title=%s;valid=true;source=mkv:title", mkvTitle)
 		}
 	}
