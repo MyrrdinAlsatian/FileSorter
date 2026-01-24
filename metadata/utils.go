@@ -1,6 +1,8 @@
 package metadata
 
 import (
+	"FileRecoveryOrganizer/metadata/mp4"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -85,5 +87,13 @@ func GetFileMeta(path string, fileType string) *FileData {
 	if typeFile := metaTags.FileType(); typeFile != "" {
 		meta.AdditionalInfo["FileType"] = string(typeFile)
 	}
+	if fileType == "mp4" {
+		mp4Meta, err := mp4.Parse(path)
+		if err == nil && mp4Meta != nil {
+			// Convert mp4.MP4Metadata to string for AdditionalInfo
+			meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
+		}
+	}
+
 	return meta
 }
