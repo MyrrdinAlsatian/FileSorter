@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"FileRecoveryOrganizer/metadata/avi"
 	"FileRecoveryOrganizer/metadata/mkv"
 	"FileRecoveryOrganizer/metadata/mp4"
 
@@ -111,6 +112,44 @@ func GetFileMeta(path string, fileType string) *FileData {
 			}
 		}
 		return meta // Retourner ici car MKV n'a pas de tags ID3
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// TRAITEMENT SPÉCIAL AVI/WMV - Format RIFF de Microsoft
+	// ═══════════════════════════════════════════════════════════════════════
+	// Le parser AVI cherche le titre dans :
+	// 1. LIST "INFO" → INAM (titre principal)
+	// 2. LIST "INFO" → IPRD (produit, utilisé comme fallback)
+	// 3. Nom de fichier nettoyé (fallback)
+	if lowerType == "avi" || lowerType == "divx" {
+		aviFile, err := os.Open(path)
+		if err == nil {
+			aviBuf := make([]byte, avi.ScanSize)
+			n, _ := aviFile.Read(aviBuf)
+			aviFile.Close()
+
+			if n > 0 {
+				filename := filepath.Base(path)
+				aviMeta := avi.ParseFile(aviBuf[:n], filename)
+
+				if aviMeta.Valid {
+					if aviMeta.Title != "" {
+						meta.OriginalName = aviMeta.Title
+						meta.Source = aviMeta.Source
+					}
+					if !aviMeta.Date.IsZero() {
+						meta.Time = aviMeta.Date
+						meta.Valid = true
+					}
+					meta.AdditionalInfo["VideoTitle"] = aviMeta.Title
+					meta.AdditionalInfo["VideoSource"] = aviMeta.Source
+					if aviMeta.Artist != "" {
+						meta.AdditionalInfo["VideoArtist"] = aviMeta.Artist
+					}
+				}
+			}
+		}
+		return meta
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
