@@ -29,8 +29,10 @@ import (
 	"log"
 	"os"
 
+	"FileRecoveryOrganizer/classifier"
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/exporter"
+	"FileRecoveryOrganizer/organizer"
 	"FileRecoveryOrganizer/scanner"
 	"FileRecoveryOrganizer/types"
 	"FileRecoveryOrganizer/utils"
@@ -66,13 +68,22 @@ func main() {
 
 	printBanner()
 
+	// Configurer les options de classification (organisation par date)
+	// organizer.ParseDateOrganization convertit la chaîne en enum
+	dateOrg := organizer.ParseDateOrganization(opts.DateOrg)
+	classifyOpts := classifier.ClassifyOptions{
+		DateOrganization: dateOrg,
+		DateSource:       organizer.DateSourceAuto,
+	}
+
 	// Mode verbose : afficher plus de détails (utile pour le débogage)
 	if opts.Verbose {
 		fmt.Printf("📋 Options:\n")
-		fmt.Printf("   Source:  %s\n", sourceDir)
-		fmt.Printf("   Export:  %s\n", opts.ExportPath)
-		fmt.Printf("   Workers: %d\n", opts.Workers)
-		fmt.Printf("   Dry-run: %v\n", opts.DryRun) // %v = format par défaut de la valeur
+		fmt.Printf("   Source:   %s\n", sourceDir)
+		fmt.Printf("   Export:   %s\n", opts.ExportPath)
+		fmt.Printf("   Workers:  %d\n", opts.Workers)
+		fmt.Printf("   Dry-run:  %v\n", opts.DryRun) // %v = format par défaut de la valeur
+		fmt.Printf("   Date-org: %s\n", dateOrg)     // Affiche le format de date
 		fmt.Println()
 	}
 
@@ -184,15 +195,18 @@ func main() {
 	// Créer une barre de progression
 	bar := scanner.CreateProgessBar(stats.TotalFiles)
 
-	// ScanDirectoryParallel lance plusieurs workers (goroutines) pour traiter
+	// ScanDirectoryParallelWithOptions lance plusieurs workers (goroutines) pour traiter
 	// les fichiers en parallèle. Le callback `func() { bar.Add(1) }` est appelé
 	// après chaque fichier traité pour mettre à jour la barre de progression.
 	//
+	// On utilise la version WithOptions pour passer les options de classification
+	// (notamment l'organisation par date configurée via -d / --date-org)
+	//
 	// CONCEPT : Les closures "capturent" les variables de leur environnement
 	// Ici, `bar` est capturé par la closure
-	err = scanner.ScanDirectoryParallel(sourceDir, collector, statsSafe, func() {
+	err = scanner.ScanDirectoryParallelWithOptions(sourceDir, collector, statsSafe, func() {
 		bar.Add(1)
-	}, opts.Workers)
+	}, opts.Workers, classifyOpts)
 
 	if err != nil {
 		fmt.Println("\n❌ Error during scanning:", err)

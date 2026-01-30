@@ -63,12 +63,70 @@ func GetFileMeta(path string, fileType string) *FileData {
 		return meta
 	}
 
-	// Pour les autres types (audio, vidéo, etc.) : extraire les tags
+	// Initialiser la map pour les données supplémentaires
+	meta.AdditionalInfo = make(map[string]string)
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// TRAITEMENT SPÉCIAL MKV - Avant tag.ReadFrom car MKV n'a pas de tags ID3
+	// ═══════════════════════════════════════════════════════════════════════
+	// Le parser MKV cherche le titre dans :
+	// 1. Info → Title (méthode principale)
+	// 2. Tags → SimpleTag TITLE (méthode alternative)
+	// 3. Nom de fichier nettoyé (fallback)
+	if lowerType == "mkv" || lowerType == "webm" {
+		mkvFile, err := os.Open(path)
+		if err == nil {
+			// Lire les premiers 512KB (suffisant pour les métadonnées)
+			mkvBuf := make([]byte, mkv.ScanSize)
+			n, _ := mkvFile.Read(mkvBuf)
+			mkvFile.Close() // Fermer explicitement
+
+			if n > 0 {
+				// Extraire le nom de fichier pour le fallback
+				filename := filepath.Base(path)
+
+				// Parser avec la nouvelle fonction qui retourne toutes les métadonnées
+				mkvMeta := mkv.ParseFile(mkvBuf[:n], filename)
+
+				if mkvMeta.Valid {
+					// Stocker le titre
+					if mkvMeta.Title != "" {
+						meta.OriginalName = mkvMeta.Title
+						meta.Source = "mkv:" + mkvMeta.Source
+					}
+
+					// Stocker la date si disponible
+					if !mkvMeta.Date.IsZero() {
+						meta.Time = mkvMeta.Date
+						meta.Valid = true
+					}
+
+					// Ajouter les infos dans AdditionalInfo pour le JSON
+					meta.AdditionalInfo["VideoTitle"] = mkvMeta.Title
+					meta.AdditionalInfo["VideoSource"] = mkvMeta.Source
+					if !mkvMeta.Date.IsZero() {
+						meta.AdditionalInfo["VideoDate"] = mkvMeta.Date.Format(time.RFC3339)
+					}
+				}
+			}
+		}
+		return meta // Retourner ici car MKV n'a pas de tags ID3
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// Pour les autres types (audio, vidéo MP4, etc.) : extraire les tags ID3
+	// ═══════════════════════════════════════════════════════════════════════
 	// Les tags ID3 sont des métadonnées standardisées dans les fichiers audio
 	metaTags, err := tag.ReadFrom(f)
-	meta.AdditionalInfo = make(map[string]string) // Initialiser la map pour les données supplémentaires
 
 	if err != nil {
+		// Si pas de tags ID3, traitement spécial pour MP4
+		if lowerType == "mp4" || lowerType == "m4v" || lowerType == "m4a" {
+			mp4Meta, err := mp4.Parse(path)
+			if err == nil && mp4Meta != nil {
+				meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
+			}
+		}
 		return meta
 	}
 
@@ -101,57 +159,12 @@ func GetFileMeta(path string, fileType string) *FileData {
 	}
 
 	// Traitement spécial pour MP4 : extraire les métadonnées vidéo
-	if fileType == "mp4" {
+	if lowerType == "mp4" || lowerType == "m4v" {
 		mp4Meta, err := mp4.Parse(path)
 		if err == nil && mp4Meta != nil {
 			// Convertir les métadonnées MP4 en string pour le stockage dans la map
 			// %+v affiche la structure avec les noms des champs
 			meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
-		}
-	}
-
-	// Traitement spécial pour MKV : extraire les métadonnées Matroska
-	// Le parser MKV cherche le titre dans :
-	// 1. Info → Title (méthode principale)
-	// 2. Tags → SimpleTag TITLE (méthode alternative)
-	// 3. Nom de fichier nettoyé (fallback)
-	if fileType == "mkv" {
-		mkvFile, err := os.Open(path)
-		if err == nil {
-			defer mkvFile.Close()
-
-			// Lire les premiers 512KB (suffisant pour les métadonnées)
-			mkvBuf := make([]byte, mkv.ScanSize)
-			n, _ := mkvFile.Read(mkvBuf)
-
-			if n > 0 {
-				// Extraire le nom de fichier pour le fallback
-				filename := filepath.Base(path)
-
-				// Parser avec la nouvelle fonction qui retourne toutes les métadonnées
-				mkvMeta := mkv.ParseFile(mkvBuf[:n], filename)
-
-				if mkvMeta.Valid {
-					// Stocker le titre
-					if mkvMeta.Title != "" {
-						meta.OriginalName = mkvMeta.Title
-						meta.Source = "mkv:" + mkvMeta.Source
-					}
-
-					// Stocker la date si disponible
-					if !mkvMeta.Date.IsZero() {
-						meta.Time = mkvMeta.Date
-						meta.Valid = true
-					}
-
-					// Ajouter les infos dans AdditionalInfo pour le JSON
-					meta.AdditionalInfo["VideoTitle"] = mkvMeta.Title
-					meta.AdditionalInfo["VideoSource"] = mkvMeta.Source
-					if !mkvMeta.Date.IsZero() {
-						meta.AdditionalInfo["VideoDate"] = mkvMeta.Date.Format(time.RFC3339)
-					}
-				}
-			}
 		}
 	}
 

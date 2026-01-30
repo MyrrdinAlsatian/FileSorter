@@ -33,6 +33,10 @@ type Options struct {
 	Verbose    bool   // Affichage détaillé
 	Workers    int    // Nombre de workers parallèles
 	Help       bool   // Afficher l'aide
+
+	// Options d'organisation par date
+	// Valeurs possibles : "none", "year", "year-month", "year-month-day"
+	DateOrg string // Format d'organisation par date
 }
 
 // DefaultOptions retourne les options par défaut.
@@ -54,6 +58,7 @@ func DefaultOptions() Options {
 		Verbose:    false,
 		Workers:    4,
 		Help:       false,
+		DateOrg:    "none", // Par défaut : pas d'organisation par date
 	}
 }
 
@@ -105,6 +110,13 @@ func ParseFlags() Options {
 	flag.BoolVar(&opts.Help, "help", false, "Afficher l'aide")
 	flag.BoolVar(&opts.Help, "h", false, "Afficher l'aide (raccourci)")
 
+	// Options d'organisation par date
+	// Valeurs : none, year, year-month, year-month-day (ou ym, ymd)
+	flag.StringVar(&opts.DateOrg, "date-org", opts.DateOrg,
+		"Organisation par date: none, year, year-month, year-month-day")
+	flag.StringVar(&opts.DateOrg, "d", opts.DateOrg,
+		"Organisation par date (raccourci)")
+
 	// flag.Parse() lit os.Args et remplit les variables liées aux flags
 	flag.Parse()
 
@@ -140,9 +152,22 @@ OPTIONS:
     -s, --source <PATH>    Répertoire source à scanner (défaut: .)
     -e, --export <PATH>    Chemin du fichier d'export JSONL (défaut: scan_results.jsonl)
     -w, --workers <N>      Nombre de workers parallèles (défaut: 4, max: 32)
+    -d, --date-org <MODE>  Organisation par date (voir ci-dessous)
     -n, --dry-run          Mode simulation - n'effectue aucune modification
     -v, --verbose          Affichage détaillé des opérations
     -h, --help             Afficher cette aide
+
+MODES D'ORGANISATION PAR DATE (-d, --date-org):
+    none            Pas d'organisation par date (défaut)
+    year            Par année : images/originals/2024/
+    year-month      Par année/mois : images/originals/2024/01/
+    year-month-day  Par année/mois/jour : images/originals/2024/01/15/
+
+    Alias : y (year), ym (year-month), ymd (year-month-day)
+
+    La date est extraite en priorité des métadonnées (EXIF, MKV, etc.)
+    puis du système de fichiers si non disponible.
+    Les fichiers sans date vont dans le dossier "unknown_date".
 
 EXEMPLES:
     # Scanner le répertoire courant
@@ -151,8 +176,11 @@ EXEMPLES:
     # Scanner un répertoire spécifique
     filesorter -s /chemin/vers/dossier
 
-    # Mode simulation avec logs détaillés
-    filesorter -s /data/recovery -n -v
+    # Organisation par année/mois avec logs détaillés
+    filesorter -s /data/photos -d year-month -v
+
+    # Mode simulation avec organisation par année
+    filesorter -s /data/recovery -d y -n -v
 
     # Export vers un fichier spécifique avec 8 workers
     filesorter -s /data -e rapport.jsonl -w 8
@@ -161,5 +189,6 @@ NOTES:
     - Le mode dry-run est recommandé pour la première utilisation
     - Les fichiers ne sont jamais modifiés pendant le scan
     - L'export JSONL contient toutes les informations pour un tri ultérieur
+    - L'organisation par date utilise les métadonnées EXIF/MKV quand disponibles
 `)
 }

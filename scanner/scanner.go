@@ -131,6 +131,18 @@ func CountFile(sourceDir string, stats *types.Stats) error {
 // Retour :
 //   - error : erreur lors du parcours du répertoire
 func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int) error {
+	// Utilise les options par défaut (sans organisation par date)
+	return ScanDirectoryParallelWithOptions(sourceDir, collector, stats, barUpdate, worker, classifier.DefaultClassifyOptions())
+}
+
+// ScanDirectoryParallelWithOptions est comme ScanDirectoryParallel mais avec des options de classification.
+//
+// Cette variante permet de configurer l'organisation par date lors de la classification.
+// Utilisez classifier.ClassifyOptions pour définir le format de date souhaité.
+//
+// Paramètres supplémentaires :
+//   - classifyOpts : options de classification (organisation par date, etc.)
+func ScanDirectoryParallelWithOptions(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int, classifyOpts classifier.ClassifyOptions) error {
 
 	// Canal pour envoyer les chemins de fichiers aux workers
 	// Buffer de 100 permet à plusieurs fichiers d'être en attente
@@ -194,8 +206,8 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 					}
 				}
 
-				// Classe le fichier dans une catégorie
-				classifier.Classify(&result)
+				// Classe le fichier dans une catégorie (avec options de date)
+				classifier.ClassifyWithOptions(&result, classifyOpts)
 
 				// Envoie le résultat dans le canal Results
 				collector.Results <- result

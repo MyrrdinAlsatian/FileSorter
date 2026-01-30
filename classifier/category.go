@@ -12,9 +12,39 @@
 // - design/* : fichiers de conception graphique
 // - code/* : fichiers source et scripts
 // etc.
+//
+// ORGANISATION PAR DATE (optionnelle) :
+// Quand activée, les fichiers sont organisés en sous-dossiers temporels :
+// - images/originals/2024/01/photo.jpg (année/mois)
+// - images/originals/2024/photo.jpg (année seule)
+// - images/originals/2024/01/15/photo.jpg (année/mois/jour)
 package classifier
 
-import "FileRecoveryOrganizer/types"
+import (
+	"FileRecoveryOrganizer/organizer"
+	"FileRecoveryOrganizer/types"
+)
+
+// ClassifyOptions contient les options de classification.
+//
+// Cette structure permet de configurer le comportement de la classification,
+// notamment l'organisation par date.
+type ClassifyOptions struct {
+	// DateOrganization définit comment organiser par date
+	// Utiliser organizer.DateNone pour désactiver
+	DateOrganization organizer.DateOrganization
+
+	// DateSource définit d'où provient la date
+	DateSource organizer.DateSource
+}
+
+// DefaultClassifyOptions retourne les options par défaut (sans organisation par date).
+func DefaultClassifyOptions() ClassifyOptions {
+	return ClassifyOptions{
+		DateOrganization: organizer.DateNone,
+		DateSource:       organizer.DateSourceAuto,
+	}
+}
 
 // Classify assigne un chemin de destination à un fichier basé sur son type et ses propriétés.
 //
@@ -35,20 +65,57 @@ import "FileRecoveryOrganizer/types"
 //   - r : pointeur vers le Result contenant les informations du fichier
 //     Cette fonction MODIFIE r en définissant TargetPath
 func Classify(r *types.Result) {
+	ClassifyWithOptions(r, DefaultClassifyOptions())
+}
+
+// ClassifyWithOptions assigne un chemin de destination avec des options personnalisées.
+//
+// Cette fonction permet d'activer l'organisation par date et d'autres options.
+// Elle est plus flexible que Classify() mais nécessite de passer des options.
+//
+// CONCEPT GO : SURCHARGE DE FONCTION
+// ==================================
+// Go ne supporte pas la surcharge de fonctions (plusieurs fonctions avec le même nom).
+// On utilise donc deux fonctions distinctes :
+// - Classify() : version simple avec options par défaut
+// - ClassifyWithOptions() : version complète avec options personnalisées
+//
+// Paramètres :
+//   - r : pointeur vers le Result
+//   - opts : options de classification
+func ClassifyWithOptions(r *types.Result, opts ClassifyOptions) {
+	// Étape 1 : Déterminer la catégorie de base
+	categoryPath := getCategoryPath(r)
+
+	// Étape 2 : Appliquer l'organisation par date si activée
+	if opts.DateOrganization != organizer.DateNone {
+		dateOpts := organizer.Options{
+			Organization:      opts.DateOrganization,
+			Source:            opts.DateSource,
+			UnknownDateFolder: "unknown_date",
+			IncludeCategory:   true,
+		}
+		r.TargetPath = organizer.OrganizeByDate(r, categoryPath, dateOpts)
+	} else {
+		r.TargetPath = categoryPath
+	}
+}
+
+// getCategoryPath détermine le chemin de catégorie de base (sans date).
+//
+// Cette fonction interne extrait la logique de catégorisation pour la réutiliser.
+func getCategoryPath(r *types.Result) string {
 	// Traitement spécial pour les images avec métadonnées EXIF
 	if r.Image != nil {
 		if r.Image.IsThumb {
-			r.TargetPath = "images/thumbnails"
-			return
+			return "images/thumbnails"
 		}
 		if r.Image.IsAsset {
-			r.TargetPath = "images/assets"
-			return
+			return "images/assets"
 		}
-		r.TargetPath = "images/originals"
-		return
+		return "images/originals"
 	}
 
 	// Utiliser la map categoryMap pour classifier par type
-	r.TargetPath = GetCategory(r.Type)
+	return GetCategory(r.Type)
 }
