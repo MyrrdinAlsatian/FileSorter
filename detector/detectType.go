@@ -62,13 +62,11 @@ func detectFileType(path string) string {
 
 	// Obtenir un buffer du pool (réutilisable)
 	buf := bufferPool.Get().([]byte)
-	n, err := f.Read(buf)
-
-	// Remettre le buffer dans le pool pour réutilisation
+	// Remettre le buffer dans le pool pour réutilisation (defer s'exécute à la fin)
 	defer bufferPool.Put(buf)
 
+	n, err := f.Read(buf)
 	if err != nil && err != io.EOF || n == 0 {
-		bufferPool.Put(buf)
 		return "Error reading file"
 	}
 

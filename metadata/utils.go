@@ -110,10 +110,19 @@ func GetFileMeta(path string, fileType string) *FileData {
 
 	// Traitement spécial pour MKV : extraire le titre de la vidéo Matroska
 	if fileType == "mkv" {
-		mkvTitle, ok := mkv.Parse([]byte(path))
-		if ok && mkvTitle != "" {
-			// Stocker le titre MKV et les métadonnées dans un format lisible
-			meta.AdditionalInfo["Video"] = fmt.Sprintf("title=%s;valid=true;source=mkv:title", mkvTitle)
+		// Lire le contenu du fichier pour le parsing MKV
+		mkvFile, err := os.Open(path)
+		if err == nil {
+			defer mkvFile.Close()
+			// Lire les premiers 512KB pour trouver le titre
+			mkvBuf := make([]byte, 512*1024)
+			n, _ := mkvFile.Read(mkvBuf)
+			if n > 0 {
+				mkvTitle, ok := mkv.Parse(mkvBuf[:n])
+				if ok && mkvTitle != "" {
+					meta.AdditionalInfo["Video"] = fmt.Sprintf("title=%s;valid=true;source=mkv:title", mkvTitle)
+				}
+			}
 		}
 	}
 

@@ -28,7 +28,11 @@
 // Cette fonction cherche principalement le titre dans la section Info.
 package mkv
 
-import "bytes"
+import (
+	"bytes"
+	"strings"
+	// Adjust import path based on your project structure
+)
 
 // Identifiants d'éléments Matroska (en hexadécimal)
 var (
@@ -37,6 +41,8 @@ var (
 	mkvDate    = []byte{0x44, 0x89}             // Date UTC (timestamp)
 	mkvTile    = []byte{0x7B, 0xA9}             // Title (titre du fichier)
 )
+
+const mkvScanSize = 512 * 1024 // 512 KB
 
 // Parse extrait le titre d'un fichier Matroska (MKV).
 //
@@ -187,4 +193,73 @@ func readEBMLSize(data []byte) (int, int) {
 	}
 
 	return val, length
+}
+
+// readEBMLID decodes an EBML element identifier from a byte slice.
+//
+// EBML identifiers are variable-length (1-4 bytes):
+// - 1 byte: 1xxxxxxx (0x80-0xFF)
+// - 2 bytes: 01xxxxxx (0x40-0x7F)
+// - 3 bytes: 001xxxxx (0x20-0x3F)
+// - 4 bytes: 0001xxxx (0x10-0x1F)
+//
+// Paramètres :
+//   - data : slice contenant les octets de l'identifiant (au moins 1 byte)
+//
+// Retour :
+//   - int : la valeur numérique de l'identifiant décodé
+//   - int : le nombre d'octets consommés (1-4)
+//     retour (0, 0) en cas d'erreur
+func readEBMLID(data []byte) (int, int) {
+	if len(data) == 0 {
+		return 0, 0
+	}
+
+	b := data[0]
+	mask := byte(0x80) // Commence par le MSB
+	length := 1
+
+	// Trouver le nombre d'octets : compter les bits zéro au début
+	for (b & mask) == 0 {
+		mask >>= 1 // Décaler le mask vers la droite
+		length++
+	}
+
+	// Valider la longueur (EBML IDs sont max 4 bytes)
+	if length > 4 || length > len(data) {
+		return 0, 0
+	}
+
+	// Extraire la valeur : tous les bytes de l'identifiant
+	val := int(b)
+	for i := 1; i < length; i++ {
+		val = (val << 8) | int(data[i])
+	}
+
+	return val, length
+}
+
+func parseSimpleTag(buf []byte, meta interface{}) {
+	var name, value string
+	pos := 0
+
+	for pos < len(buf)-8 {
+		id, idLen := readEBMLID(buf[pos:])
+		size, sizeLen := readEBMLSize(buf[pos+idLen:])
+
+		dataStart := pos + idLen + sizeLen
+		dataEnd := dataStart + size
+
+		switch id {
+		case 0x45A3: // TagName
+			name = string(buf[dataStart:dataEnd])
+		case 0x4487: // TagString
+			value = string(buf[dataStart:dataEnd])
+		}
+		pos = dataEnd
+	}
+	if strings.EqualFold(name, "TITLE") && value != "" {
+		// Handle the metadata assignment based on the actual type
+		// You can use type assertion when calling this function
+	}
 }
