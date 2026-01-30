@@ -114,19 +114,40 @@ func GetFileMeta(path string, fileType string) *FileData {
 	}
 
 	// ═══════════════════════════════════════════════════════════════════════
-	// Pour les autres types (audio, vidéo MP4, etc.) : extraire les tags ID3
+	// TRAITEMENT SPÉCIAL MP4/M4V - Parser dédié pour les métadonnées vidéo
+	// ═══════════════════════════════════════════════════════════════════════
+	if lowerType == "mp4" || lowerType == "m4v" || lowerType == "m4a" || lowerType == "mov" {
+		mp4Meta, err := mp4.Parse(path)
+		if err == nil && mp4Meta != nil && mp4Meta.Valid {
+			// Titre trouvé dans les métadonnées MP4
+			if mp4Meta.Title != "" {
+				meta.OriginalName = mp4Meta.Title
+				meta.Source = "mp4:title"
+			}
+			// Date de création
+			if !mp4Meta.Date.IsZero() && mp4Meta.Date.Year() > 1990 {
+				meta.Time = mp4Meta.Date
+				meta.Valid = true
+			}
+			// Stocker les infos vidéo
+			if mp4Meta.Width > 0 && mp4Meta.Height > 0 {
+				meta.AdditionalInfo["VideoWidth"] = fmt.Sprintf("%d", mp4Meta.Width)
+				meta.AdditionalInfo["VideoHeight"] = fmt.Sprintf("%d", mp4Meta.Height)
+			}
+			if mp4Meta.Duration > 0 {
+				meta.AdditionalInfo["VideoDuration"] = mp4Meta.Duration.String()
+			}
+		}
+		return meta // Retourner car MP4 a son propre parser
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// Pour les autres types (audio principalement) : extraire les tags ID3
 	// ═══════════════════════════════════════════════════════════════════════
 	// Les tags ID3 sont des métadonnées standardisées dans les fichiers audio
 	metaTags, err := tag.ReadFrom(f)
 
 	if err != nil {
-		// Si pas de tags ID3, traitement spécial pour MP4
-		if lowerType == "mp4" || lowerType == "m4v" || lowerType == "m4a" {
-			mp4Meta, err := mp4.Parse(path)
-			if err == nil && mp4Meta != nil {
-				meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
-			}
-		}
 		return meta
 	}
 
@@ -156,16 +177,6 @@ func GetFileMeta(path string, fileType string) *FileData {
 	}
 	if typeFile := metaTags.FileType(); typeFile != "" {
 		meta.AdditionalInfo["FileType"] = string(typeFile)
-	}
-
-	// Traitement spécial pour MP4 : extraire les métadonnées vidéo
-	if lowerType == "mp4" || lowerType == "m4v" {
-		mp4Meta, err := mp4.Parse(path)
-		if err == nil && mp4Meta != nil {
-			// Convertir les métadonnées MP4 en string pour le stockage dans la map
-			// %+v affiche la structure avec les noms des champs
-			meta.AdditionalInfo["Video"] = fmt.Sprintf("%+v", mp4Meta)
-		}
 	}
 
 	return meta
