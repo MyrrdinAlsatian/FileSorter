@@ -80,6 +80,9 @@ func Classify(r *types.Result) {
 // - Classify() : version simple avec options par défaut
 // - ClassifyWithOptions() : version complète avec options personnalisées
 //
+// NOTE : L'organisation par date n'est appliquée qu'aux médias (images, vidéos, audio)
+// car ce sont les seuls types de fichiers où la date a un sens pour l'organisation.
+//
 // Paramètres :
 //   - r : pointeur vers le Result
 //   - opts : options de classification
@@ -87,8 +90,9 @@ func ClassifyWithOptions(r *types.Result, opts ClassifyOptions) {
 	// Étape 1 : Déterminer la catégorie de base
 	categoryPath := getCategoryPath(r)
 
-	// Étape 2 : Appliquer l'organisation par date si activée
-	if opts.DateOrganization != organizer.DateNone {
+	// Étape 2 : Appliquer l'organisation par date SEULEMENT pour les médias
+	// Les documents, archives, code, etc. n'ont pas de date significative
+	if opts.DateOrganization != organizer.DateNone && isMediaCategory(categoryPath) {
 		dateOpts := organizer.Options{
 			Organization:      opts.DateOrganization,
 			Source:            opts.DateSource,
@@ -99,6 +103,22 @@ func ClassifyWithOptions(r *types.Result, opts ClassifyOptions) {
 	} else {
 		r.TargetPath = categoryPath
 	}
+}
+
+// isMediaCategory vérifie si une catégorie est un type de média
+// qui bénéficie de l'organisation par date.
+//
+// Catégories concernées :
+// - images/* : photos avec date EXIF
+// - videos/* : vidéos avec date de création
+// - audio/* : musique avec année de sortie
+func isMediaCategory(categoryPath string) bool {
+	// Vérifier si le chemin commence par images/, videos/ ou audio/
+	if len(categoryPath) < 6 {
+		return false
+	}
+	prefix := categoryPath[:6]
+	return prefix == "images" || prefix == "videos" || prefix == "audio/"
 }
 
 // getCategoryPath détermine le chemin de catégorie de base (sans date).
