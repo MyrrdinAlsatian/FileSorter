@@ -1,12 +1,14 @@
 package metadata
 
 import (
-	"FileRecoveryOrganizer/metadata/mkv"
-	"FileRecoveryOrganizer/metadata/mp4"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"FileRecoveryOrganizer/metadata/mkv"
+	"FileRecoveryOrganizer/metadata/mp4"
 
 	"github.com/dhowden/tag"
 	"github.com/rwcarlsen/goexif/exif"
@@ -108,19 +110,46 @@ func GetFileMeta(path string, fileType string) *FileData {
 		}
 	}
 
-	// Traitement spécial pour MKV : extraire le titre de la vidéo Matroska
+	// Traitement spécial pour MKV : extraire les métadonnées Matroska
+	// Le parser MKV cherche le titre dans :
+	// 1. Info → Title (méthode principale)
+	// 2. Tags → SimpleTag TITLE (méthode alternative)
+	// 3. Nom de fichier nettoyé (fallback)
 	if fileType == "mkv" {
-		// Lire le contenu du fichier pour le parsing MKV
 		mkvFile, err := os.Open(path)
 		if err == nil {
 			defer mkvFile.Close()
-			// Lire les premiers 512KB pour trouver le titre
-			mkvBuf := make([]byte, 512*1024)
+
+			// Lire les premiers 512KB (suffisant pour les métadonnées)
+			mkvBuf := make([]byte, mkv.ScanSize)
 			n, _ := mkvFile.Read(mkvBuf)
+
 			if n > 0 {
-				mkvTitle, ok := mkv.Parse(mkvBuf[:n])
-				if ok && mkvTitle != "" {
-					meta.AdditionalInfo["Video"] = fmt.Sprintf("title=%s;valid=true;source=mkv:title", mkvTitle)
+				// Extraire le nom de fichier pour le fallback
+				filename := filepath.Base(path)
+
+				// Parser avec la nouvelle fonction qui retourne toutes les métadonnées
+				mkvMeta := mkv.ParseFile(mkvBuf[:n], filename)
+
+				if mkvMeta.Valid {
+					// Stocker le titre
+					if mkvMeta.Title != "" {
+						meta.OriginalName = mkvMeta.Title
+						meta.Source = "mkv:" + mkvMeta.Source
+					}
+
+					// Stocker la date si disponible
+					if !mkvMeta.Date.IsZero() {
+						meta.Time = mkvMeta.Date
+						meta.Valid = true
+					}
+
+					// Ajouter les infos dans AdditionalInfo pour le JSON
+					meta.AdditionalInfo["VideoTitle"] = mkvMeta.Title
+					meta.AdditionalInfo["VideoSource"] = mkvMeta.Source
+					if !mkvMeta.Date.IsZero() {
+						meta.AdditionalInfo["VideoDate"] = mkvMeta.Date.Format(time.RFC3339)
+					}
 				}
 			}
 		}
