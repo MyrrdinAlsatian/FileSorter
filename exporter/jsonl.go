@@ -79,6 +79,20 @@ func NewJSONExporter(filePath string) (*JSONExporter, error) {
 	}, nil
 }
 
+// NewJSONExporterAppend crée un exporter qui ajoute au fichier existant.
+// Utilisé pour le mode resume.
+func NewJSONExporterAppend(filePath string) (*JSONExporter, error) {
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	return &JSONExporter{
+		file:   file,
+		writer: bufio.NewWriterSize(file, 64*1024), // 64KB buffer
+	}, nil
+}
+
 func (je *JSONExporter) Write(result types.Result) error {
 	data, err := json.Marshal(result)
 	if err != nil {

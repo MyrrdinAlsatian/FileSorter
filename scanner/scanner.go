@@ -28,10 +28,17 @@ import (
 // Result est un alias vers types.Result pour simplifier les imports
 type Result = types.Result
 
+// SkipChecker est une interface pour vérifier si un fichier doit être ignoré.
+// Utilisé pour le mode resume.
+type SkipChecker interface {
+	IsProcessed(path string) bool
+}
+
 // ScanOptions contient toutes les options pour le scan parallèle.
 type ScanOptions struct {
 	ClassifyOpts classifier.ClassifyOptions // Options de classification
 	ComputeHash  bool                       // Calculer les hash pour détecter les doublons
+	SkipChecker  SkipChecker                // Vérificateur de fichiers à ignorer (nil = aucun)
 }
 
 // DefaultScanOptions retourne les options de scan par défaut.
@@ -39,6 +46,7 @@ func DefaultScanOptions() ScanOptions {
 	return ScanOptions{
 		ClassifyOpts: classifier.DefaultClassifyOptions(),
 		ComputeHash:  false,
+		SkipChecker:  nil,
 	}
 }
 
@@ -263,6 +271,15 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 	// Parcourir le répertoire source et envoyer les chemins de fichiers au canal
 	err := filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
+			return nil
+		}
+
+		// Mode resume : vérifier si le fichier a déjà été traité
+		if opts.SkipChecker != nil && opts.SkipChecker.IsProcessed(path) {
+			// Fichier déjà traité, mettre à jour la barre mais ne pas retraiter
+			if barUpdate != nil {
+				barUpdate()
+			}
 			return nil
 		}
 

@@ -33,6 +33,7 @@ type Options struct {
 	Verbose    bool   // Affichage détaillé
 	Workers    int    // Nombre de workers parallèles
 	Help       bool   // Afficher l'aide
+	Resume     bool   // Reprendre un scan interrompu
 
 	// Options d'organisation par date
 	// Valeurs possibles : "none", "year", "year-month", "year-month-day"
@@ -66,6 +67,7 @@ func DefaultOptions() Options {
 		Verbose:     false,
 		Workers:     4,
 		Help:        false,
+		Resume:      false,           // Par défaut : nouveau scan
 		DateOrg:     "none",          // Par défaut : pas d'organisation par date
 		ComputeHash: false,           // Par défaut : pas de calcul de hash
 		HashReport:  false,           // Par défaut : pas de rapport de doublons
@@ -121,6 +123,11 @@ func ParseFlags() Options {
 
 	flag.BoolVar(&opts.Help, "help", false, "Afficher l'aide")
 	flag.BoolVar(&opts.Help, "h", false, "Afficher l'aide (raccourci)")
+
+	flag.BoolVar(&opts.Resume, "resume", opts.Resume,
+		"Reprendre un scan interrompu (ignore les fichiers déjà dans le JSONL)")
+	flag.BoolVar(&opts.Resume, "R", opts.Resume,
+		"Reprendre le scan (raccourci)")
 
 	// Options d'organisation par date
 	// Valeurs : none, year, year-month, year-month-day (ou ym, ymd)
@@ -180,7 +187,7 @@ func PrintUsage() {
 USAGE:
     filesorter [OPTIONS]
 
-OPTIONS:
+OPTIONS GÉNÉRALES:
     -s, --source <PATH>    Répertoire source à scanner (défaut: .)
     -e, --export <PATH>    Chemin du fichier d'export JSONL (défaut: scan_results.jsonl)
     -w, --workers <N>      Nombre de workers parallèles (défaut: 4, max: 32)
@@ -188,8 +195,19 @@ OPTIONS:
     -n, --dry-run          Mode simulation - n'effectue aucune modification
     -v, --verbose          Affichage détaillé des opérations
     -h, --help             Afficher cette aide
-	-H, --hash             Calculer les hash SHA256 pour détecter les doublons
+
+REPRISE DE SCAN:
+    -R, --resume           Reprendre un scan interrompu (ignore les fichiers
+                           déjà présents dans le fichier JSONL)
+
+DÉTECTION DE DOUBLONS:
+    -H, --hash             Calculer les hash SHA256 pour tous les fichiers
     -D, --duplicates       Générer un rapport de fichiers doublons
+    -m, --min-size <BYTES> Taille minimale pour chercher les doublons (défaut: 1MB)
+                           Accepte : 1024, 1KB, 1MB, 1GB
+
+RAPPORTS:
+    -r, --report <PATH>    Générer un rapport HTML interactif au chemin spécifié
 
 MODES D'ORGANISATION PAR DATE (-d, --date-org):
     none            Pas d'organisation par date (défaut)
@@ -219,10 +237,25 @@ EXEMPLES:
     # Export vers un fichier spécifique avec 8 workers
     filesorter -s /data -e rapport.jsonl -w 8
 
+    # Reprendre un scan interrompu
+    filesorter -s /data -R
+
+    # Détection de doublons avec rapport, fichiers > 5MB seulement
+    filesorter -s /data -D -m 5MB
+
+    # Générer un rapport HTML complet
+    filesorter -s /data -r rapport.html
+
+WORKFLOW RECOMMANDÉ:
+    1. Premier scan : filesorter -s /data -e scan.jsonl
+    2. Si interrompu : filesorter -s /data -e scan.jsonl -R
+    3. Analyse doublons : filesorter -s /data -D -r rapport.html
+
 NOTES:
     - Le mode dry-run est recommandé pour la première utilisation
     - Les fichiers ne sont jamais modifiés pendant le scan
     - L'export JSONL contient toutes les informations pour un tri ultérieur
     - L'organisation par date utilise les métadonnées EXIF/MKV quand disponibles
+    - Le mode resume (-R) lit le JSONL existant et saute les fichiers déjà traités
 `)
 }

@@ -30,6 +30,7 @@ import (
 	"log"
 	"os"
 
+	"FileRecoveryOrganizer/checkpoint"
 	"FileRecoveryOrganizer/classifier"
 	"FileRecoveryOrganizer/dedup"
 	"FileRecoveryOrganizer/detector"
@@ -89,12 +90,30 @@ func main() {
 		fmt.Printf("   Date-org:   %s\n", dateOrg)     // Affiche le format de date
 		fmt.Printf("   Hash:       %v\n", opts.ComputeHash)
 		fmt.Printf("   Duplicates: %v\n", opts.HashReport)
+		fmt.Printf("   Resume:     %v\n", opts.Resume)
 		fmt.Printf("   HTML:       %s\n", opts.HTMLReport)
 		fmt.Println()
 	}
 
 	if opts.DryRun {
 		fmt.Println("🔍 MODE SIMULATION - Aucun fichier ne sera modifié")
+		fmt.Println()
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// ÉTAPE 2.5 : CHARGEMENT DU CHECKPOINT (si --resume)
+	// ═══════════════════════════════════════════════════════════════════════
+
+	processedFiles := checkpoint.NewProcessedFiles()
+	if opts.Resume {
+		fmt.Printf("🔄 Mode reprise activé, chargement de %s...\n", opts.ExportPath)
+		if err := processedFiles.LoadFromJSONL(opts.ExportPath); err != nil {
+			fmt.Printf("⚠️  Erreur lors du chargement: %v\n", err)
+		} else if processedFiles.Count() > 0 {
+			fmt.Printf("   ✓ %d fichiers déjà traités seront ignorés\n", processedFiles.Count())
+		} else {
+			fmt.Println("   ℹ️  Aucun fichier précédemment traité trouvé")
+		}
 		fmt.Println()
 	}
 
@@ -149,7 +168,14 @@ func main() {
 	// ═══════════════════════════════════════════════════════════════════════
 
 	// JSONL = JSON Lines : un objet JSON par ligne, idéal pour le streaming
-	jsonExporter, err := exporter.NewJSONExporter(exportPath)
+	var jsonExporter *exporter.JSONExporter
+	if opts.Resume {
+		// Mode resume : ajouter au fichier existant
+		jsonExporter, err = exporter.NewJSONExporterAppend(exportPath)
+	} else {
+		// Mode normal : créer un nouveau fichier
+		jsonExporter, err = exporter.NewJSONExporter(exportPath)
+	}
 	if err != nil {
 		// log.Fatalf affiche le message ET termine le programme avec code d'erreur
 		log.Fatalf("Failed to create JSON exporter: %v", err)
@@ -230,6 +256,7 @@ func main() {
 	scanOpts := scanner.ScanOptions{
 		ClassifyOpts: classifyOpts,
 		ComputeHash:  opts.ComputeHash || opts.HashReport, // Activer le hash si demandé
+		SkipChecker:  processedFiles,                      // Pour le mode resume (sera nil si pas de resume)
 	}
 
 	// ScanDirectoryParallelWithScanOptions lance plusieurs workers (goroutines) pour traiter
