@@ -32,10 +32,10 @@ import (
 // ReportData contient toutes les données pour générer le rapport HTML.
 type ReportData struct {
 	// Informations générales
-	Title          string    `json:"title"`
-	GeneratedAt    time.Time `json:"generated_at"`
-	SourceDir      string    `json:"source_dir"`
-	ScanDuration   string    `json:"scan_duration"`
+	Title        string    `json:"title"`
+	GeneratedAt  time.Time `json:"generated_at"`
+	SourceDir    string    `json:"source_dir"`
+	ScanDuration string    `json:"scan_duration"`
 
 	// Statistiques globales
 	TotalFiles     int    `json:"total_files"`
@@ -53,25 +53,25 @@ type ReportData struct {
 	Files []FileEntry `json:"files"`
 
 	// Doublons (si calculés)
-	HasDuplicates    bool                  `json:"has_duplicates"`
-	DuplicateReport  *dedup.DuplicateReport `json:"duplicate_report,omitempty"`
+	HasDuplicates   bool                   `json:"has_duplicates"`
+	DuplicateReport *dedup.DuplicateReport `json:"duplicate_report,omitempty"`
 }
 
 // CategoryStats représente les statistiques d'une catégorie.
 type CategoryStats struct {
-	Name       string `json:"name"`
-	Count      int    `json:"count"`
-	Size       int64  `json:"size"`
-	SizeHuman  string `json:"size_human"`
+	Name       string  `json:"name"`
+	Count      int     `json:"count"`
+	Size       int64   `json:"size"`
+	SizeHuman  string  `json:"size_human"`
 	Percentage float64 `json:"percentage"`
 }
 
 // FileTypeStats représente les statistiques d'un type de fichier.
 type FileTypeStats struct {
-	Extension  string `json:"extension"`
-	Count      int    `json:"count"`
-	Size       int64  `json:"size"`
-	SizeHuman  string `json:"size_human"`
+	Extension  string  `json:"extension"`
+	Count      int     `json:"count"`
+	Size       int64   `json:"size"`
+	SizeHuman  string  `json:"size_human"`
 	Percentage float64 `json:"percentage"`
 }
 

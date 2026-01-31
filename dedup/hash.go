@@ -255,7 +255,7 @@ func (df *DuplicateFinder) FindDuplicates() *DuplicateReport {
 			candidateCount += len(paths)
 		}
 	}
-	
+
 	// Afficher les statistiques de filtrage
 	fmt.Printf("   ✓ %d fichiers avec taille unique → ignorés (pas de doublon possible)\n", uniqueSizeCount)
 	fmt.Printf("   ✓ %d fichiers candidats (%d groupes de même taille)\n", candidateCount, len(candidates))
