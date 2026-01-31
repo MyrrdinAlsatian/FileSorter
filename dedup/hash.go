@@ -22,9 +22,12 @@ package dedup
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"sync"
+
+	"github.com/schollz/progressbar/v3"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -226,49 +229,113 @@ func (df *DuplicateFinder) AddFile(path string, size int64) {
 func (df *DuplicateFinder) FindDuplicates() *DuplicateReport {
 	report := &DuplicateReport{}
 
-	// Compter le total de fichiers
+	// Compter le total de fichiers et ceux avec taille unique
+	var uniqueSizeCount int
 	for _, paths := range df.bySize {
 		report.TotalFiles += len(paths)
+		if len(paths) == 1 {
+			uniqueSizeCount++
+		}
 	}
 
 	// Passe 1 : Filtrer les tailles avec potentiels doublons
+	fmt.Println("   📋 Passe 1/3: Filtrage par taille...")
 	var candidates []struct {
 		size  int64
 		paths []string
 	}
 
+	var candidateCount int
 	for size, paths := range df.bySize {
 		if len(paths) > 1 {
 			candidates = append(candidates, struct {
 				size  int64
 				paths []string
 			}{size, paths})
+			candidateCount += len(paths)
 		}
+	}
+	
+	// Afficher les statistiques de filtrage
+	fmt.Printf("   ✓ %d fichiers avec taille unique → ignorés (pas de doublon possible)\n", uniqueSizeCount)
+	fmt.Printf("   ✓ %d fichiers candidats (%d groupes de même taille)\n", candidateCount, len(candidates))
+	skippedPercent := float64(uniqueSizeCount) * 100 / float64(report.TotalFiles)
+	fmt.Printf("   💡 %.1f%% des fichiers ignorés grâce au filtrage par taille\n", skippedPercent)
+
+	if candidateCount == 0 {
+		fmt.Println("   ✨ Aucun doublon potentiel trouvé!")
+		report.UniqueFiles = report.TotalFiles
+		return report
 	}
 
 	// Passe 2 : Quick hash des candidats
+	fmt.Println("   🔍 Passe 2/3: Calcul des hash rapides...")
+	bar2 := progressbar.NewOptions(candidateCount,
+		progressbar.OptionSetDescription("   Quick hash"),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(40),
+	)
+
 	for _, candidate := range candidates {
 		for _, path := range candidate.paths {
 			hash, err := ComputeQuickHash(path, candidate.size)
-			if err != nil {
-				continue
+			if err == nil {
+				df.byQuickHash[hash] = append(df.byQuickHash[hash], path)
 			}
-			df.byQuickHash[hash] = append(df.byQuickHash[hash], path)
+			bar2.Add(1)
 		}
+	}
+	fmt.Println() // Nouvelle ligne après la barre
+
+	// Compter les fichiers pour la passe 3
+	var fullHashCount int
+	for _, paths := range df.byQuickHash {
+		if len(paths) > 1 {
+			fullHashCount += len(paths)
+		}
+	}
+	fmt.Printf("   ✓ %d fichiers avec hash rapide identique\n", fullHashCount)
+
+	if fullHashCount == 0 {
+		fmt.Println("   ✨ Aucun doublon confirmé!")
+		report.UniqueFiles = report.TotalFiles
+		return report
 	}
 
 	// Passe 3 : Full hash pour confirmation
+	fmt.Println("   🔐 Passe 3/3: Vérification complète...")
+	bar3 := progressbar.NewOptions(fullHashCount,
+		progressbar.OptionSetDescription("   Full hash "),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(40),
+	)
+
 	for _, paths := range df.byQuickHash {
 		if len(paths) > 1 {
 			for _, path := range paths {
 				hash, err := ComputeFullHash(path)
-				if err != nil {
-					continue
+				if err == nil {
+					df.byFullHash[hash] = append(df.byFullHash[hash], path)
 				}
-				df.byFullHash[hash] = append(df.byFullHash[hash], path)
+				bar3.Add(1)
 			}
 		}
 	}
+	fmt.Println() // Nouvelle ligne après la barre
 
 	// Construire le rapport final
 	seen := make(map[string]bool)

@@ -41,6 +41,9 @@ type Options struct {
 	// Options de détection de doublons
 	ComputeHash bool // Calculer les hash pour détecter les doublons
 	HashReport  bool // Générer un rapport de doublons
+
+	// Options de rapport
+	HTMLReport string // Chemin du rapport HTML (vide = pas de rapport)
 }
 
 // DefaultOptions retourne les options par défaut.
@@ -65,6 +68,7 @@ func DefaultOptions() Options {
 		DateOrg:     "none", // Par défaut : pas d'organisation par date
 		ComputeHash: false,  // Par défaut : pas de calcul de hash
 		HashReport:  false,  // Par défaut : pas de rapport de doublons
+		HTMLReport:  "",     // Par défaut : pas de rapport HTML
 	}
 }
 
@@ -132,6 +136,12 @@ func ParseFlags() Options {
 		"Générer un rapport de fichiers doublons")
 	flag.BoolVar(&opts.HashReport, "D", opts.HashReport,
 		"Rapport de doublons (raccourci)")
+
+	// Options de rapport HTML
+	flag.StringVar(&opts.HTMLReport, "report", opts.HTMLReport,
+		"Générer un rapport HTML au chemin spécifié")
+	flag.StringVar(&opts.HTMLReport, "r", opts.HTMLReport,
+		"Rapport HTML (raccourci)")
 
 	// flag.Parse() lit os.Args et remplit les variables liées aux flags
 	flag.Parse()

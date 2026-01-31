@@ -35,6 +35,7 @@ import (
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/exporter"
 	"FileRecoveryOrganizer/organizer"
+	"FileRecoveryOrganizer/report"
 	"FileRecoveryOrganizer/scanner"
 	"FileRecoveryOrganizer/types"
 	"FileRecoveryOrganizer/utils"
@@ -88,6 +89,7 @@ func main() {
 		fmt.Printf("   Date-org:   %s\n", dateOrg)     // Affiche le format de date
 		fmt.Printf("   Hash:       %v\n", opts.ComputeHash)
 		fmt.Printf("   Duplicates: %v\n", opts.HashReport)
+		fmt.Printf("   HTML:       %s\n", opts.HTMLReport)
 		fmt.Println()
 	}
 
@@ -182,6 +184,10 @@ func main() {
 		duplicateFinder = dedup.NewDuplicateFinder()
 	}
 
+	// Slice pour collecter les résultats si on génère un rapport HTML
+	var allResults []types.Result
+	collectResults := opts.HTMLReport != ""
+
 	// `go func() { ... }()` lance une fonction anonyme dans une nouvelle goroutine
 	go func() {
 		// defer close(exportDone) : à la fin de cette goroutine, fermer le canal
@@ -193,6 +199,11 @@ func main() {
 			// Si le calcul de hash est activé, ajouter le fichier au détecteur
 			if duplicateFinder != nil {
 				duplicateFinder.AddFile(result.Path, result.Size)
+			}
+
+			// Collecter pour le rapport HTML si demandé
+			if collectResults {
+				allResults = append(allResults, result)
 			}
 
 			if err := jsonExporter.Write(result); err != nil {
@@ -254,17 +265,33 @@ func main() {
 	// ÉTAPE 9 : RAPPORT DE DOUBLONS (si demandé)
 	// ═══════════════════════════════════════════════════════════════════════
 
+	// Variable pour stocker le rapport de doublons (utilisé aussi pour le HTML)
+	var duplicateReport *dedup.DuplicateReport
 	if opts.HashReport && duplicateFinder != nil {
 		fmt.Println("\n🔍 Analyse des doublons en cours...")
-		report := duplicateFinder.FindDuplicates()
-		printDuplicateReport(report, opts.Verbose)
+		duplicateReport = duplicateFinder.FindDuplicates()
+		printDuplicateReport(duplicateReport, opts.Verbose)
 
 		// Exporter le rapport en JSON
 		reportPath := "duplicates_report.json"
-		if err := exportDuplicateReport(report, reportPath); err != nil {
+		if err := exportDuplicateReport(duplicateReport, reportPath); err != nil {
 			log.Printf("⚠️  Erreur lors de l'export du rapport: %v", err)
 		} else {
 			fmt.Printf("📄 Rapport des doublons exporté: %s\n", reportPath)
+		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// ÉTAPE 10 : GÉNÉRATION DU RAPPORT HTML (si demandé)
+	// ═══════════════════════════════════════════════════════════════════════
+
+	if opts.HTMLReport != "" {
+		fmt.Println("\n📊 Génération du rapport HTML...")
+		if err := report.GenerateHTML(allResults, sourceDir, opts.HTMLReport, duplicateReport); err != nil {
+			log.Printf("⚠️  Erreur lors de la génération du rapport HTML: %v", err)
+		} else {
+			fmt.Printf("🌐 Rapport HTML généré: %s\n", opts.HTMLReport)
+			fmt.Println("   Ouvrez ce fichier dans un navigateur pour visualiser les résultats.")
 		}
 	}
 }
