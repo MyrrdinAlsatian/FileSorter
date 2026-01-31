@@ -37,6 +37,10 @@ type Options struct {
 	// Options d'organisation par date
 	// Valeurs possibles : "none", "year", "year-month", "year-month-day"
 	DateOrg string // Format d'organisation par date
+
+	// Options de détection de doublons
+	ComputeHash bool // Calculer les hash pour détecter les doublons
+	HashReport  bool // Générer un rapport de doublons
 }
 
 // DefaultOptions retourne les options par défaut.
@@ -52,13 +56,15 @@ type Options struct {
 // - DefaultXxx() : retourne une valeur (Xxx)
 func DefaultOptions() Options {
 	return Options{
-		ExportPath: "scan_results.jsonl",
-		SourceDir:  ".",
-		DryRun:     false,
-		Verbose:    false,
-		Workers:    4,
-		Help:       false,
-		DateOrg:    "none", // Par défaut : pas d'organisation par date
+		ExportPath:  "scan_results.jsonl",
+		SourceDir:   ".",
+		DryRun:      false,
+		Verbose:     false,
+		Workers:     4,
+		Help:        false,
+		DateOrg:     "none", // Par défaut : pas d'organisation par date
+		ComputeHash: false,  // Par défaut : pas de calcul de hash
+		HashReport:  false,  // Par défaut : pas de rapport de doublons
 	}
 }
 
@@ -117,6 +123,16 @@ func ParseFlags() Options {
 	flag.StringVar(&opts.DateOrg, "d", opts.DateOrg,
 		"Organisation par date (raccourci)")
 
+	// Options de détection de doublons
+	flag.BoolVar(&opts.ComputeHash, "hash", opts.ComputeHash,
+		"Calculer les hash SHA256 pour détecter les doublons")
+	flag.BoolVar(&opts.ComputeHash, "H", opts.ComputeHash,
+		"Activer le calcul de hash (raccourci)")
+	flag.BoolVar(&opts.HashReport, "duplicates", opts.HashReport,
+		"Générer un rapport de fichiers doublons")
+	flag.BoolVar(&opts.HashReport, "D", opts.HashReport,
+		"Rapport de doublons (raccourci)")
+
 	// flag.Parse() lit os.Args et remplit les variables liées aux flags
 	flag.Parse()
 
@@ -156,6 +172,8 @@ OPTIONS:
     -n, --dry-run          Mode simulation - n'effectue aucune modification
     -v, --verbose          Affichage détaillé des opérations
     -h, --help             Afficher cette aide
+	-H, --hash             Calculer les hash SHA256 pour détecter les doublons
+    -D, --duplicates       Générer un rapport de fichiers doublons
 
 MODES D'ORGANISATION PAR DATE (-d, --date-org):
     none            Pas d'organisation par date (défaut)

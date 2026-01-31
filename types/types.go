@@ -63,4 +63,8 @@ type Result struct {
 	Error          string             `json:"error,omitempty"`           // Message d'erreur si problème
 	TargetPath     string             `json:"target_path,omitempty"`     // Chemin de destination classifié
 	AdditionalInfo *metadata.FileData `json:"additional_info,omitempty"` // Métadonnées de date extraites
+
+	// Champs pour la détection de doublons
+	QuickHash string `json:"quick_hash,omitempty"` // Hash rapide (début+fin) pour filtrage
+	FullHash  string `json:"full_hash,omitempty"`  // Hash SHA256 complet pour confirmation
 }

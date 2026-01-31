@@ -25,11 +25,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 
 	"FileRecoveryOrganizer/classifier"
+	"FileRecoveryOrganizer/dedup"
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/exporter"
 	"FileRecoveryOrganizer/organizer"
@@ -79,11 +81,13 @@ func main() {
 	// Mode verbose : afficher plus de détails (utile pour le débogage)
 	if opts.Verbose {
 		fmt.Printf("📋 Options:\n")
-		fmt.Printf("   Source:   %s\n", sourceDir)
-		fmt.Printf("   Export:   %s\n", opts.ExportPath)
-		fmt.Printf("   Workers:  %d\n", opts.Workers)
-		fmt.Printf("   Dry-run:  %v\n", opts.DryRun) // %v = format par défaut de la valeur
-		fmt.Printf("   Date-org: %s\n", dateOrg)     // Affiche le format de date
+		fmt.Printf("   Source:     %s\n", sourceDir)
+		fmt.Printf("   Export:     %s\n", opts.ExportPath)
+		fmt.Printf("   Workers:    %d\n", opts.Workers)
+		fmt.Printf("   Dry-run:    %v\n", opts.DryRun) // %v = format par défaut de la valeur
+		fmt.Printf("   Date-org:   %s\n", dateOrg)     // Affiche le format de date
+		fmt.Printf("   Hash:       %v\n", opts.ComputeHash)
+		fmt.Printf("   Duplicates: %v\n", opts.HashReport)
 		fmt.Println()
 	}
 
@@ -172,6 +176,12 @@ func main() {
 	var exportErr error               // Stocke la dernière erreur d'export
 	exportDone := make(chan struct{}) // Canal de signalisation (sans données)
 
+	// Détecteur de doublons (initialisé seulement si demandé)
+	var duplicateFinder *dedup.DuplicateFinder
+	if opts.ComputeHash || opts.HashReport {
+		duplicateFinder = dedup.NewDuplicateFinder()
+	}
+
 	// `go func() { ... }()` lance une fonction anonyme dans une nouvelle goroutine
 	go func() {
 		// defer close(exportDone) : à la fin de cette goroutine, fermer le canal
@@ -180,6 +190,11 @@ func main() {
 
 		// range sur un canal : itère jusqu'à ce que le canal soit fermé
 		for result := range collector.Results {
+			// Si le calcul de hash est activé, ajouter le fichier au détecteur
+			if duplicateFinder != nil {
+				duplicateFinder.AddFile(result.Path, result.Size)
+			}
+
 			if err := jsonExporter.Write(result); err != nil {
 				log.Printf("Failed to write result for %s: %v", result.Path, err)
 				exportErr = err
@@ -195,18 +210,21 @@ func main() {
 	// Créer une barre de progression
 	bar := scanner.CreateProgessBar(stats.TotalFiles)
 
-	// ScanDirectoryParallelWithOptions lance plusieurs workers (goroutines) pour traiter
+	// Construire les options de scan complètes
+	scanOpts := scanner.ScanOptions{
+		ClassifyOpts: classifyOpts,
+		ComputeHash:  opts.ComputeHash || opts.HashReport, // Activer le hash si demandé
+	}
+
+	// ScanDirectoryParallelWithScanOptions lance plusieurs workers (goroutines) pour traiter
 	// les fichiers en parallèle. Le callback `func() { bar.Add(1) }` est appelé
 	// après chaque fichier traité pour mettre à jour la barre de progression.
 	//
-	// On utilise la version WithOptions pour passer les options de classification
-	// (notamment l'organisation par date configurée via -d / --date-org)
-	//
 	// CONCEPT : Les closures "capturent" les variables de leur environnement
 	// Ici, `bar` est capturé par la closure
-	err = scanner.ScanDirectoryParallelWithOptions(sourceDir, collector, statsSafe, func() {
+	err = scanner.ScanDirectoryParallelWithScanOptions(sourceDir, collector, statsSafe, func() {
 		bar.Add(1)
-	}, opts.Workers, classifyOpts)
+	}, opts.Workers, scanOpts)
 
 	if err != nil {
 		fmt.Println("\n❌ Error during scanning:", err)
@@ -231,6 +249,24 @@ func main() {
 
 	// Afficher le résumé final
 	printSummary(statsSafe, stats, resultCount, opts.Verbose)
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// ÉTAPE 9 : RAPPORT DE DOUBLONS (si demandé)
+	// ═══════════════════════════════════════════════════════════════════════
+
+	if opts.HashReport && duplicateFinder != nil {
+		fmt.Println("\n🔍 Analyse des doublons en cours...")
+		report := duplicateFinder.FindDuplicates()
+		printDuplicateReport(report, opts.Verbose)
+
+		// Exporter le rapport en JSON
+		reportPath := "duplicates_report.json"
+		if err := exportDuplicateReport(report, reportPath); err != nil {
+			log.Printf("⚠️  Erreur lors de l'export du rapport: %v", err)
+		} else {
+			fmt.Printf("📄 Rapport des doublons exporté: %s\n", reportPath)
+		}
+	}
 }
 
 // printBanner affiche la bannière de l'application.
@@ -304,4 +340,88 @@ func printSummary(statsSafe *scanner.SafeStats, stats *types.Stats, resultCount 
 		}
 	}
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
+}
+
+// printDuplicateReport affiche le rapport de doublons de manière formatée.
+//
+// Cette fonction affiche un résumé des fichiers dupliqués trouvés,
+// incluant le nombre de groupes, l'espace gaspillé, et les détails
+// de chaque groupe (en mode verbose).
+//
+// Paramètres :
+//   - report : le rapport de détection de doublons
+//   - verbose : si true, afficher les chemins de tous les fichiers doublons
+func printDuplicateReport(report *dedup.DuplicateReport, verbose bool) {
+	fmt.Println()
+	fmt.Println("═══════════════════════════════════════════════════════════════════")
+	fmt.Println("                    🔍 RAPPORT DE DOUBLONS")
+	fmt.Println("═══════════════════════════════════════════════════════════════════")
+
+	fmt.Printf("  📁 Fichiers analysés:     %d\n", report.TotalFiles)
+	fmt.Printf("  ✅ Fichiers uniques:      %d\n", report.UniqueFiles)
+	fmt.Printf("  🔄 Fichiers en double:    %d\n", report.DuplicateFiles)
+	fmt.Printf("  📦 Groupes de doublons:   %d\n", report.DuplicateGroups)
+	fmt.Printf("  💾 Espace gaspillé:       %s\n", utils.ReadableSize(report.WastedSpace))
+
+	if report.DuplicateGroups == 0 {
+		fmt.Println("\n  ✨ Aucun doublon détecté !")
+	} else if verbose && len(report.Groups) > 0 {
+		fmt.Println()
+		fmt.Println("  📋 Détail des groupes de doublons:")
+		fmt.Println("  ─────────────────────────────────────────────────────────────────")
+
+		// Afficher les 10 premiers groupes (ou tous en mode très verbose)
+		maxGroups := 10
+		if len(report.Groups) < maxGroups {
+			maxGroups = len(report.Groups)
+		}
+
+		for i := 0; i < maxGroups; i++ {
+			group := report.Groups[i]
+			fmt.Printf("\n  Groupe %d: %d fichiers (%s chacun)\n", i+1, group.Count, utils.ReadableSize(group.Size))
+			fmt.Printf("    Hash: %s\n", group.Hash)
+
+			// Afficher les 5 premiers chemins
+			maxPaths := 5
+			if len(group.Paths) < maxPaths {
+				maxPaths = len(group.Paths)
+			}
+			for j := 0; j < maxPaths; j++ {
+				fmt.Printf("      • %s\n", group.Paths[j])
+			}
+			if len(group.Paths) > 5 {
+				fmt.Printf("      ... et %d autres fichiers\n", len(group.Paths)-5)
+			}
+		}
+
+		if len(report.Groups) > 10 {
+			fmt.Printf("\n  ... et %d autres groupes de doublons\n", len(report.Groups)-10)
+		}
+	}
+
+	fmt.Println("═══════════════════════════════════════════════════════════════════")
+}
+
+// exportDuplicateReport exporte le rapport de doublons en JSON.
+//
+// Le rapport est exporté dans un fichier JSON formaté avec indentation
+// pour être facilement lisible et exploitable par d'autres outils.
+//
+// Paramètres :
+//   - report : le rapport de détection de doublons
+//   - path : chemin du fichier JSON de sortie
+//
+// Retour :
+//   - error : erreur si l'écriture échoue
+func exportDuplicateReport(report *dedup.DuplicateReport, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Utiliser json.MarshalIndent pour un JSON lisible
+	encoder := json.NewEncoder(f)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(report)
 }

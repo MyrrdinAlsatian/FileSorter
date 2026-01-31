@@ -5,6 +5,7 @@
 // - Détecter les types de fichiers
 // - Enrichir les données des fichiers avec les métadonnées
 // - Classer les fichiers selon leur type
+// - Calculer les hash pour la détection de doublons (optionnel)
 //
 // Les fichiers sont traités de manière parallèle en utilisant des goroutines
 // pour améliorer les performances lors du traitement d'un grand nombre de fichiers.
@@ -17,6 +18,7 @@ import (
 	"sync"
 
 	"FileRecoveryOrganizer/classifier"
+	"FileRecoveryOrganizer/dedup"
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/enricher"
 	"FileRecoveryOrganizer/metadata"
@@ -25,6 +27,20 @@ import (
 
 // Result est un alias vers types.Result pour simplifier les imports
 type Result = types.Result
+
+// ScanOptions contient toutes les options pour le scan parallèle.
+type ScanOptions struct {
+	ClassifyOpts classifier.ClassifyOptions // Options de classification
+	ComputeHash  bool                       // Calculer les hash pour détecter les doublons
+}
+
+// DefaultScanOptions retourne les options de scan par défaut.
+func DefaultScanOptions() ScanOptions {
+	return ScanOptions{
+		ClassifyOpts: classifier.DefaultClassifyOptions(),
+		ComputeHash:  false,
+	}
+}
 
 // ScanDirectory parcourt un répertoire de manière synchrone (bloquante).
 //
@@ -131,8 +147,8 @@ func CountFile(sourceDir string, stats *types.Stats) error {
 // Retour :
 //   - error : erreur lors du parcours du répertoire
 func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int) error {
-	// Utilise les options par défaut (sans organisation par date)
-	return ScanDirectoryParallelWithOptions(sourceDir, collector, stats, barUpdate, worker, classifier.DefaultClassifyOptions())
+	// Utilise les options par défaut (sans organisation par date ni hash)
+	return ScanDirectoryParallelWithScanOptions(sourceDir, collector, stats, barUpdate, worker, DefaultScanOptions())
 }
 
 // ScanDirectoryParallelWithOptions est comme ScanDirectoryParallel mais avec des options de classification.
@@ -143,6 +159,22 @@ func ScanDirectoryParallel(sourceDir string, collector *Collector, stats *SafeSt
 // Paramètres supplémentaires :
 //   - classifyOpts : options de classification (organisation par date, etc.)
 func ScanDirectoryParallelWithOptions(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int, classifyOpts classifier.ClassifyOptions) error {
+	opts := ScanOptions{
+		ClassifyOpts: classifyOpts,
+		ComputeHash:  false,
+	}
+	return ScanDirectoryParallelWithScanOptions(sourceDir, collector, stats, barUpdate, worker, opts)
+}
+
+// ScanDirectoryParallelWithScanOptions est la version la plus complète du scanner parallèle.
+//
+// Cette variante accepte toutes les options possibles incluant :
+// - Classification avec organisation par date
+// - Calcul de hash pour détection de doublons
+//
+// Paramètres supplémentaires :
+//   - opts : structure ScanOptions contenant toutes les options
+func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int, opts ScanOptions) error {
 
 	// Canal pour envoyer les chemins de fichiers aux workers
 	// Buffer de 100 permet à plusieurs fichiers d'être en attente
@@ -206,8 +238,16 @@ func ScanDirectoryParallelWithOptions(sourceDir string, collector *Collector, st
 					}
 				}
 
+				// Calcul du hash pour la détection de doublons (si activé)
+				// Le quick hash est rapide et suffisant pour la plupart des cas
+				if opts.ComputeHash {
+					if hash, err := dedup.ComputeQuickHash(path, info.Size()); err == nil {
+						result.QuickHash = hash
+					}
+				}
+
 				// Classe le fichier dans une catégorie (avec options de date)
-				classifier.ClassifyWithOptions(&result, classifyOpts)
+				classifier.ClassifyWithOptions(&result, opts.ClassifyOpts)
 
 				// Envoie le résultat dans le canal Results
 				collector.Results <- result
