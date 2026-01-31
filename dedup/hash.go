@@ -16,7 +16,13 @@
 // 1. "Quick hash" : hash des premiers et derniers 64KB
 // 2. "Full hash" : hash complet seulement si quick hash identique
 //
-// Cela permet d'éliminer rapidement les fichiers différents.
+// Cela permet d'éliminer rapidement les fichiers différents
+// sans avoir à lire tout le contenu de chaque fichier.
+// OPTIMISATIONS IMPLÉMENTÉES :
+// 1. Filtrage par taille - ignorer les fichiers uniques (pas de doublon possible)
+// 2. Filtrage par taille minimale - ignorer les petits fichiers (peu d'espace récupérable)
+// 3. Quick hash - hash rapide (début+fin) avant le hash complet
+// 4. Parallélisation - plusieurs workers pour calculer les hash simultanément
 package dedup
 
 import (
@@ -25,7 +31,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/schollz/progressbar/v3"
 )
@@ -40,18 +48,14 @@ const (
 
 	// SmallFileThreshold : en dessous de cette taille, on fait le hash complet directement
 	SmallFileThreshold = 256 * 1024 // 256 KB
+
+	// DefaultMinSize : taille minimale par défaut pour chercher les doublons (1 MB)
+	DefaultMinSize = 1 * 1024 * 1024
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
-
-// FileHash contient les informations de hash d'un fichier.
-type FileHash struct {
-	QuickHash string `json:"quick_hash,omitempty"` // Hash rapide (début + fin)
-	FullHash  string `json:"full_hash,omitempty"`  // Hash complet
-	Size      int64  `json:"size"`                 // Taille du fichier
-}
 
 // DuplicateGroup représente un groupe de fichiers identiques.
 type DuplicateGroup struct {
@@ -69,7 +73,22 @@ type DuplicateReport struct {
 	DuplicateFiles  int              `json:"duplicate_files"`
 	DuplicateGroups int              `json:"duplicate_groups"`
 	WastedSpace     int64            `json:"wasted_space_bytes"`
+	SkippedSmall    int              `json:"skipped_small_files"`
 	Groups          []DuplicateGroup `json:"groups,omitempty"`
+}
+
+// FinderOptions contient les options de configuration du détecteur.
+type FinderOptions struct {
+	MinSize int64 // Taille minimale des fichiers à analyser (0 = tous)
+	Workers int   // Nombre de workers parallèles (0 = auto)
+}
+
+// DefaultFinderOptions retourne les options par défaut.
+func DefaultFinderOptions() FinderOptions {
+	return FinderOptions{
+		MinSize: DefaultMinSize,
+		Workers: runtime.NumCPU(),
+	}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -187,35 +206,38 @@ func ComputeFullHash(path string) (string, error) {
 // Cette structure utilise un sync.Mutex pour protéger l'accès concurrent
 // aux maps internes. Cela permet d'appeler AddFile depuis plusieurs goroutines.
 type DuplicateFinder struct {
-	mu sync.Mutex
-
-	// Première passe : grouper par taille (les doublons ont forcément la même taille)
-	bySize map[int64][]string
-
-	// Deuxième passe : grouper par quick hash
-	byQuickHash map[string][]string
-
-	// Troisième passe : grouper par full hash (confirmation finale)
-	byFullHash map[string][]string
+	mu      sync.Mutex
+	bySize  map[int64][]string
+	options FinderOptions
 }
 
-// NewDuplicateFinder crée un nouveau détecteur de doublons.
+// NewDuplicateFinder crée un nouveau détecteur avec options par défaut.
 func NewDuplicateFinder() *DuplicateFinder {
+	return NewDuplicateFinderWithOptions(DefaultFinderOptions())
+}
+
+// NewDuplicateFinderWithOptions crée un détecteur avec options personnalisées.
+func NewDuplicateFinderWithOptions(opts FinderOptions) *DuplicateFinder {
+	if opts.Workers <= 0 {
+		opts.Workers = runtime.NumCPU()
+	}
 	return &DuplicateFinder{
-		bySize:      make(map[int64][]string),
-		byQuickHash: make(map[string][]string),
-		byFullHash:  make(map[string][]string),
+		bySize:  make(map[int64][]string),
+		options: opts,
 	}
 }
 
-// AddFile ajoute un fichier au détecteur.
-//
-// Cette fonction est thread-safe et peut être appelée depuis plusieurs goroutines.
+// AddFile ajoute un fichier au détecteur (thread-safe).
 func (df *DuplicateFinder) AddFile(path string, size int64) {
 	df.mu.Lock()
 	defer df.mu.Unlock()
-
 	df.bySize[size] = append(df.bySize[size], path)
+}
+
+// hashJob représente un travail de hash à effectuer.
+type hashJob struct {
+	path string
+	size int64
 }
 
 // FindDuplicates analyse les fichiers et retourne le rapport de doublons.
@@ -228,129 +250,112 @@ func (df *DuplicateFinder) AddFile(path string, size int64) {
 // Cette approche évite de hasher les fichiers uniques (gain de temps énorme).
 func (df *DuplicateFinder) FindDuplicates() *DuplicateReport {
 	report := &DuplicateReport{}
+	workers := df.options.Workers
+	minSize := df.options.MinSize
 
-	// Compter le total de fichiers et ceux avec taille unique
-	var uniqueSizeCount int
-	for _, paths := range df.bySize {
+	fmt.Printf("   ⚙️  Configuration: %d workers, taille min: %s\n", workers, formatSize(minSize))
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// PASSE 1 : Filtrage par taille
+	// ═══════════════════════════════════════════════════════════════════════
+	fmt.Println("   📋 Passe 1/3: Filtrage par taille...")
+
+	var candidates []hashJob
+	var uniqueSizeCount, skippedSmall int
+
+	for size, paths := range df.bySize {
 		report.TotalFiles += len(paths)
+
+		// Ignorer les fichiers trop petits
+		if size < minSize {
+			skippedSmall += len(paths)
+			continue
+		}
+
+		// Garder seulement les tailles avec 2+ fichiers
 		if len(paths) == 1 {
 			uniqueSizeCount++
+			continue
+		}
+
+		// Ajouter comme candidats
+		for _, p := range paths {
+			candidates = append(candidates, hashJob{path: p, size: size})
 		}
 	}
 
-	// Passe 1 : Filtrer les tailles avec potentiels doublons
-	fmt.Println("   📋 Passe 1/3: Filtrage par taille...")
-	var candidates []struct {
-		size  int64
-		paths []string
-	}
+	report.SkippedSmall = skippedSmall
+	fmt.Printf("   ✓ %d fichiers < %s ignorés (trop petits)\n", skippedSmall, formatSize(minSize))
+	fmt.Printf("   ✓ %d fichiers avec taille unique ignorés\n", uniqueSizeCount)
+	fmt.Printf("   ✓ %d fichiers candidats à analyser\n", len(candidates))
 
-	var candidateCount int
-	for size, paths := range df.bySize {
-		if len(paths) > 1 {
-			candidates = append(candidates, struct {
-				size  int64
-				paths []string
-			}{size, paths})
-			candidateCount += len(paths)
-		}
-	}
-
-	// Afficher les statistiques de filtrage
-	fmt.Printf("   ✓ %d fichiers avec taille unique → ignorés (pas de doublon possible)\n", uniqueSizeCount)
-	fmt.Printf("   ✓ %d fichiers candidats (%d groupes de même taille)\n", candidateCount, len(candidates))
-	skippedPercent := float64(uniqueSizeCount) * 100 / float64(report.TotalFiles)
-	fmt.Printf("   💡 %.1f%% des fichiers ignorés grâce au filtrage par taille\n", skippedPercent)
-
-	if candidateCount == 0 {
+	if len(candidates) == 0 {
 		fmt.Println("   ✨ Aucun doublon potentiel trouvé!")
-		report.UniqueFiles = report.TotalFiles
+		report.UniqueFiles = report.TotalFiles - skippedSmall
 		return report
 	}
 
-	// Passe 2 : Quick hash des candidats
+	// ═══════════════════════════════════════════════════════════════════════
+	// PASSE 2 : Quick hash (parallélisé)
+	// ═══════════════════════════════════════════════════════════════════════
 	fmt.Println("   🔍 Passe 2/3: Calcul des hash rapides...")
-	bar2 := progressbar.NewOptions(candidateCount,
-		progressbar.OptionSetDescription("   Quick hash"),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "█",
-			SaucerHead:    "█",
-			SaucerPadding: "░",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSetWidth(40),
-	)
 
-	for _, candidate := range candidates {
-		for _, path := range candidate.paths {
-			hash, err := ComputeQuickHash(path, candidate.size)
-			if err == nil {
-				df.byQuickHash[hash] = append(df.byQuickHash[hash], path)
-			}
-			bar2.Add(1)
-		}
-	}
-	fmt.Println() // Nouvelle ligne après la barre
+	byQuickHash := df.parallelHash(candidates, workers, "Quick hash", func(job hashJob) (string, error) {
+		return ComputeQuickHash(job.path, job.size)
+	})
 
-	// Compter les fichiers pour la passe 3
-	var fullHashCount int
-	for _, paths := range df.byQuickHash {
+	// Filtrer pour ne garder que les groupes avec 2+ fichiers
+	var fullHashCandidates []hashJob
+	for _, paths := range byQuickHash {
 		if len(paths) > 1 {
-			fullHashCount += len(paths)
+			for _, p := range paths {
+				// Récupérer la taille depuis bySize
+				var size int64
+				for s, ps := range df.bySize {
+					for _, pp := range ps {
+						if pp == p {
+							size = s
+							break
+						}
+					}
+					if size > 0 {
+						break
+					}
+				}
+				fullHashCandidates = append(fullHashCandidates, hashJob{path: p, size: size})
+			}
 		}
 	}
-	fmt.Printf("   ✓ %d fichiers avec hash rapide identique\n", fullHashCount)
 
-	if fullHashCount == 0 {
+	fmt.Printf("   ✓ %d fichiers avec quick hash identique\n", len(fullHashCandidates))
+
+	if len(fullHashCandidates) == 0 {
 		fmt.Println("   ✨ Aucun doublon confirmé!")
-		report.UniqueFiles = report.TotalFiles
+		report.UniqueFiles = report.TotalFiles - skippedSmall
 		return report
 	}
 
-	// Passe 3 : Full hash pour confirmation
+	// ═══════════════════════════════════════════════════════════════════════
+	// PASSE 3 : Full hash (parallélisé)
+	// ═══════════════════════════════════════════════════════════════════════
 	fmt.Println("   🔐 Passe 3/3: Vérification complète...")
-	bar3 := progressbar.NewOptions(fullHashCount,
-		progressbar.OptionSetDescription("   Full hash "),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "█",
-			SaucerHead:    "█",
-			SaucerPadding: "░",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSetWidth(40),
-	)
 
-	for _, paths := range df.byQuickHash {
+	byFullHash := df.parallelHash(fullHashCandidates, workers, "Full hash ", func(job hashJob) (string, error) {
+		return ComputeFullHash(job.path)
+	})
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// Construction du rapport
+	// ═══════════════════════════════════════════════════════════════════════
+	for hash, paths := range byFullHash {
 		if len(paths) > 1 {
-			for _, path := range paths {
-				hash, err := ComputeFullHash(path)
-				if err == nil {
-					df.byFullHash[hash] = append(df.byFullHash[hash], path)
-				}
-				bar3.Add(1)
-			}
-		}
-	}
-	fmt.Println() // Nouvelle ligne après la barre
-
-	// Construire le rapport final
-	seen := make(map[string]bool)
-	for hash, paths := range df.byFullHash {
-		if len(paths) > 1 && !seen[hash] {
-			seen[hash] = true
-
-			// Obtenir la taille (tous les fichiers ont la même)
 			var size int64
 			if info, err := os.Stat(paths[0]); err == nil {
 				size = info.Size()
 			}
 
 			group := DuplicateGroup{
-				Hash:  hash[:16] + "...", // Tronquer pour lisibilité
+				Hash:  hash[:16] + "...",
 				Size:  size,
 				Count: len(paths),
 				Paths: paths,
@@ -364,20 +369,80 @@ func (df *DuplicateFinder) FindDuplicates() *DuplicateReport {
 		}
 	}
 
-	report.UniqueFiles = report.TotalFiles - report.DuplicateFiles + report.DuplicateGroups
+	report.UniqueFiles = report.TotalFiles - report.DuplicateFiles + report.DuplicateGroups - skippedSmall
 
 	return report
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// FONCTIONS UTILITAIRES
-// ═══════════════════════════════════════════════════════════════════════════
+// parallelHash calcule les hash en parallèle avec une barre de progression.
+func (df *DuplicateFinder) parallelHash(
+	jobs []hashJob,
+	workers int,
+	description string,
+	hashFunc func(hashJob) (string, error),
+) map[string][]string {
 
-// FormatSize formate une taille en bytes de façon lisible.
-func FormatSize(bytes int64) string {
+	results := make(map[string][]string)
+	var mu sync.Mutex
+	var processed int64
+
+	// Créer la barre de progression
+	bar := progressbar.NewOptions(len(jobs),
+		progressbar.OptionSetDescription("   "+description),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionShowIts(),
+	)
+
+	// Canal pour distribuer les jobs
+	jobChan := make(chan hashJob, workers*2)
+
+	// WaitGroup pour attendre tous les workers
+	var wg sync.WaitGroup
+
+	// Lancer les workers
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobChan {
+				hash, err := hashFunc(job)
+				if err == nil {
+					mu.Lock()
+					results[hash] = append(results[hash], job.path)
+					mu.Unlock()
+				}
+				atomic.AddInt64(&processed, 1)
+				bar.Add(1)
+			}
+		}()
+	}
+
+	// Envoyer les jobs
+	for _, job := range jobs {
+		jobChan <- job
+	}
+	close(jobChan)
+
+	// Attendre la fin
+	wg.Wait()
+	fmt.Println() // Nouvelle ligne après la barre
+
+	return results
+}
+
+// formatSize formate une taille en bytes de façon lisible.
+func formatSize(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {
-		return string(rune(bytes)) + " B"
+		return fmt.Sprintf("%d B", bytes)
 	}
 	div, exp := int64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
@@ -385,5 +450,5 @@ func FormatSize(bytes int64) string {
 		exp++
 	}
 	units := []string{"KB", "MB", "GB", "TB"}
-	return string(rune(bytes/div)) + " " + units[exp]
+	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
 }

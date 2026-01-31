@@ -181,7 +181,12 @@ func main() {
 	// Détecteur de doublons (initialisé seulement si demandé)
 	var duplicateFinder *dedup.DuplicateFinder
 	if opts.ComputeHash || opts.HashReport {
-		duplicateFinder = dedup.NewDuplicateFinder()
+		// Configurer le détecteur avec les options
+		dedupOpts := dedup.FinderOptions{
+			MinSize: opts.MinDupSize,
+			Workers: opts.Workers,
+		}
+		duplicateFinder = dedup.NewDuplicateFinderWithOptions(dedupOpts)
 	}
 
 	// Slice pour collecter les résultats si on génère un rapport HTML

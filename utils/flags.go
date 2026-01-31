@@ -39,8 +39,9 @@ type Options struct {
 	DateOrg string // Format d'organisation par date
 
 	// Options de détection de doublons
-	ComputeHash bool // Calculer les hash pour détecter les doublons
-	HashReport  bool // Générer un rapport de doublons
+	ComputeHash bool  // Calculer les hash pour détecter les doublons
+	HashReport  bool  // Générer un rapport de doublons
+	MinDupSize  int64 // Taille minimale pour chercher les doublons (en bytes)
 
 	// Options de rapport
 	HTMLReport string // Chemin du rapport HTML (vide = pas de rapport)
@@ -65,10 +66,11 @@ func DefaultOptions() Options {
 		Verbose:     false,
 		Workers:     4,
 		Help:        false,
-		DateOrg:     "none", // Par défaut : pas d'organisation par date
-		ComputeHash: false,  // Par défaut : pas de calcul de hash
-		HashReport:  false,  // Par défaut : pas de rapport de doublons
-		HTMLReport:  "",     // Par défaut : pas de rapport HTML
+		DateOrg:     "none",          // Par défaut : pas d'organisation par date
+		ComputeHash: false,           // Par défaut : pas de calcul de hash
+		HashReport:  false,           // Par défaut : pas de rapport de doublons
+		MinDupSize:  1 * 1024 * 1024, // Par défaut : 1 MB minimum pour les doublons
+		HTMLReport:  "",              // Par défaut : pas de rapport HTML
 	}
 }
 
@@ -136,6 +138,10 @@ func ParseFlags() Options {
 		"Générer un rapport de fichiers doublons")
 	flag.BoolVar(&opts.HashReport, "D", opts.HashReport,
 		"Rapport de doublons (raccourci)")
+	flag.Int64Var(&opts.MinDupSize, "min-size", opts.MinDupSize,
+		"Taille minimale en bytes pour chercher les doublons (défaut: 1MB)")
+	flag.Int64Var(&opts.MinDupSize, "m", opts.MinDupSize,
+		"Taille minimale pour doublons (raccourci)")
 
 	// Options de rapport HTML
 	flag.StringVar(&opts.HTMLReport, "report", opts.HTMLReport,
