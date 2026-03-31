@@ -74,7 +74,13 @@ go build -o filesorter .
 - Filtre par taille minimale
 - Rapport détaillé de l'espace gaspillé
 
-### 📦 Déplacement intelligent
+### �️ Déduplication active
+- Actions : `delete`, `hardlink`, `symlink`
+- Stratégies de sélection : `shortest`, `oldest`, `newest`, `path`
+- Mode dry-run pour simulation
+- Récupération automatique de l'espace disque
+
+### �📦 Déplacement intelligent
 - Modes : `copy`, `move`, `hardlink`, `symlink`
 - Vérification d'intégrité post-copie
 - Gestion des conflits : `skip`, `overwrite`, `rename`
@@ -128,6 +134,13 @@ go build -o filesorter .
 | `-H, --hash` | Calculer les hash SHA256 |
 | `-D, --duplicates` | Générer un rapport de doublons |
 | `-m, --min-size <BYTES>` | Taille minimale (défaut: 1MB) |
+
+### Déduplication active
+| Option | Description |
+|--------|-------------|
+| `-X, --dedup <ACTION>` | `delete`, `hardlink`, `symlink`, `dry-run` |
+| `--dedup-keep <MODE>` | `shortest`, `oldest`, `newest`, `first`, `path` |
+| `--dedup-priority <PATH>` | Chemin prioritaire (pour mode `path`) |
 
 ### Organisation par date
 | Option | Description |
@@ -186,7 +199,9 @@ FileSorter/
 │   ├── image.go         # JPEG, PNG, GIF, WebP, BMP
 │   ├── video.go         # MP4, MKV, AVI, WMV, FLV
 │   └── audio.go         # MP3, FLAC, WAV, OGG
-├── dedup/               # Détection de doublons
+├── dedup/               # Détection et suppression de doublons
+│   ├── hash.go          # Calcul de hash (quick + full)
+│   └── deduplicate.go   # Déduplication active
 ├── mover/               # Copie/déplacement des fichiers
 ├── renamer/             # Renommage intelligent
 │   ├── pattern.go       # Parsing des patterns
@@ -211,13 +226,16 @@ FileSorter/
 ./filesorter -s /data/recovery -e scan.jsonl -R
 
 # Étape 3 : Analyser les doublons
-./filesorter -e scan.jsonl -D -r rapport.html
+./filesorterDédupliquer (simulation)
+./filesorter -e scan.jsonl -X dry-run
 
-# Étape 4 : Prévisualiser le déplacement (dry-run)
-./filesorter -e scan.jsonl -M /sorted -n
+# Étape 5 : Dédupliquer (hardlinks)
+./filesorter -e scan.jsonl -X hardlink --dedup-keep shortest
 
-# Étape 5 : Prévisualiser le renommage
+# Étape 6 : Prévisualiser le renommage
 ./filesorter -e scan.jsonl -M /sorted -p photo -P
+
+# Étape 7ter -e scan.jsonl -M /sorted -p photo -P
 
 # Étape 6 : Déplacer avec renommage et vérification
 ./filesorter -e scan.jsonl -M /sorted -p "{date}_{camera}_{seq:4}.{ext}" --verify
@@ -296,6 +314,6 @@ MIT License
 ## 🔜 Roadmap
 
 - [x] ~~Renommage intelligent (patterns `{date}_{camera}_{seq}.{ext}`)~~
-- [ ] Déduplication active (suppression/liens des doublons)
+- [x] ~~Déduplication active (suppression/liens des doublons)~~
 - [ ] Interface web pour tri manuel
 - [ ] Détection de similarité d'images (perceptual hash)

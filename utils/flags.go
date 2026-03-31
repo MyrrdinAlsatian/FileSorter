@@ -44,6 +44,11 @@ type Options struct {
 	HashReport  bool  // Générer un rapport de doublons
 	MinDupSize  int64 // Taille minimale pour chercher les doublons (en bytes)
 
+	// Options de déduplication active
+	DeduplicateAction   string // Action : delete, hardlink, symlink, dry-run
+	DeduplicateStrategy string // Stratégie de sélection : shortest, oldest, newest, first
+	DeduplicatePriority string // Chemin prioritaire (pour stratégie path)
+
 	// Options de rapport
 	HTMLReport string // Chemin du rapport HTML (vide = pas de rapport)
 
@@ -77,25 +82,31 @@ type Options struct {
 // - DefaultXxx() : retourne une valeur (Xxx)
 func DefaultOptions() Options {
 	return Options{
-		ExportPath:    "scan_results.jsonl",
-		SourceDir:     ".",
-		DryRun:        false,
-		Verbose:       false,
-		Workers:       4,
-		Help:          false,
-		Resume:        false,           // Par défaut : nouveau scan
-		DateOrg:       "none",          // Par défaut : pas d'organisation par date
-		ComputeHash:   false,           // Par défaut : pas de calcul de hash
-		HashReport:    false,           // Par défaut : pas de rapport de doublons
-		MinDupSize:    1 * 1024 * 1024, // Par défaut : 1 MB minimum pour les doublons
-		HTMLReport:    "",              // Par défaut : pas de rapport HTML
-		Validate:      false,           // Par défaut : pas de validation
-		ValidateTypes: "all",           // Par défaut : valider tous les types supportés
-		MoveTo:        "",              // Par défaut : pas de déplacement
-		MoveMode:      "copy",          // Par défaut : copier (ne pas supprimer les originaux)
-		MoveVerify:    false,           // Par défaut : pas de vérification hash
-		MoveOverwrite: "skip",          // Par défaut : ignorer les conflits
-		SkipCorrupted: true,            // Par défaut : ignorer les fichiers corrompus
+		ExportPath:  "scan_results.jsonl",
+		SourceDir:   ".",
+		DryRun:      false,
+		Verbose:     false,
+		Workers:     4,
+		Help:        false,
+		Resume:      false,           // Par défaut : nouveau scan
+		DateOrg:     "none",          // Par défaut : pas d'organisation par date
+		ComputeHash: false,           // Par défaut : pas de calcul de hash
+		HashReport:  false,           // Par défaut : pas de rapport de doublons
+		MinDupSize:  1 * 1024 * 1024, // Par défaut : 1 MB minimum pour les doublons
+
+		// Déduplication active
+		DeduplicateAction:   "",         // Par défaut : pas de déduplication
+		DeduplicateStrategy: "shortest", // Par défaut : garder le chemin le plus court
+		DeduplicatePriority: "",         // Par défaut : pas de chemin prioritaire
+
+		HTMLReport:    "",     // Par défaut : pas de rapport HTML
+		Validate:      false,  // Par défaut : pas de validation
+		ValidateTypes: "all",  // Par défaut : valider tous les types supportés
+		MoveTo:        "",     // Par défaut : pas de déplacement
+		MoveMode:      "copy", // Par défaut : copier (ne pas supprimer les originaux)
+		MoveVerify:    false,  // Par défaut : pas de vérification hash
+		MoveOverwrite: "skip", // Par défaut : ignorer les conflits
+		SkipCorrupted: true,   // Par défaut : ignorer les fichiers corrompus
 
 		// Renommage
 		RenamePattern:  "",          // Par défaut : pas de renommage
@@ -177,6 +188,16 @@ func ParseFlags() Options {
 		"Taille minimale en bytes pour chercher les doublons (défaut: 1MB)")
 	flag.Int64Var(&opts.MinDupSize, "m", opts.MinDupSize,
 		"Taille minimale pour doublons (raccourci)")
+
+	// Options de déduplication active
+	flag.StringVar(&opts.DeduplicateAction, "dedup", opts.DeduplicateAction,
+		"Action de déduplication: delete, hardlink, symlink, dry-run")
+	flag.StringVar(&opts.DeduplicateAction, "X", opts.DeduplicateAction,
+		"Déduplication (raccourci)")
+	flag.StringVar(&opts.DeduplicateStrategy, "dedup-keep", opts.DeduplicateStrategy,
+		"Stratégie: shortest, oldest, newest, first, path (défaut: shortest)")
+	flag.StringVar(&opts.DeduplicatePriority, "dedup-priority", opts.DeduplicatePriority,
+		"Chemin prioritaire pour la stratégie 'path'")
 
 	// Options de rapport HTML
 	flag.StringVar(&opts.HTMLReport, "report", opts.HTMLReport,
@@ -275,6 +296,16 @@ VALIDATION D'INTÉGRITÉ:
     -V, --validate         Valider l'intégrité des fichiers (détecter les corrompus)
     --validate-types       Types à valider: image, video, audio, all (défaut: all)
                            Les fichiers corrompus sont marqués dans le JSONL
+
+DÉDUPLICATION ACTIVE:
+    -X, --dedup <ACTION>   Action sur les doublons: delete, hardlink, symlink, dry-run
+    --dedup-keep <MODE>    Stratégie de sélection de l'original:
+                             shortest  Garder le chemin le plus court (défaut)
+                             oldest    Garder le fichier le plus ancien
+                             newest    Garder le fichier le plus récent
+                             first     Garder le premier trouvé
+                             path      Préférer un chemin spécifique
+    --dedup-priority PATH  Chemin prioritaire (pour --dedup-keep path)
 
 DÉPLACEMENT DE FICHIERS:
     -M, --move-to <PATH>   Destination pour copier/déplacer les fichiers triés
@@ -378,11 +409,25 @@ EXEMPLES:
     # Renommer avec hash pour les conflits
     filesorter -e scan.jsonl -M /sorted -p dated --conflict hash
 
+    # Simuler la déduplication (dry-run)
+    filesorter -e scan.jsonl -X dry-run
+
+    # Supprimer les doublons (garde le chemin le plus court)
+    filesorter -e scan.jsonl -X delete
+
+    # Remplacer les doublons par des hardlinks
+    filesorter -e scan.jsonl -X hardlink --dedup-keep oldest
+
+    # Préférer les fichiers dans /sorted/ lors de la déduplication
+    filesorter -e scan.jsonl -X hardlink --dedup-keep path --dedup-priority /sorted
+
 WORKFLOW RECOMMANDÉ:
     1. Premier scan avec validation : filesorter -s /data -e scan.jsonl -V
     2. Si interrompu : filesorter -s /data -e scan.jsonl -R
     3. Analyse doublons : filesorter -s /data -D -r rapport.html
-    4. Déplacer vers destination : filesorter -e scan.jsonl -M /sorted --verify
+    4. Dédupliquer (simulation) : filesorter -e scan.jsonl -X dry-run
+    5. Dédupliquer (hardlink) : filesorter -e scan.jsonl -X hardlink
+    6. Déplacer vers destination : filesorter -e scan.jsonl -M /sorted --verify
 
 NOTES:
     - Le mode dry-run est recommandé pour la première utilisation
