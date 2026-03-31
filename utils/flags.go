@@ -57,6 +57,11 @@ type Options struct {
 	MoveVerify    bool   // Vérifier le hash après copie
 	MoveOverwrite string // Gestion des conflits : skip, overwrite, rename
 	SkipCorrupted bool   // Ignorer les fichiers corrompus lors du déplacement
+
+	// Options de renommage (renamer)
+	RenamePattern  string // Pattern de renommage ({date}_{seq:4}.{ext})
+	RenameConflict string // Stratégie de conflit : increment, skip, hash, timestamp
+	RenamePreview  bool   // Aperçu du renommage sans l'appliquer
 }
 
 // DefaultOptions retourne les options par défaut.
@@ -91,6 +96,11 @@ func DefaultOptions() Options {
 		MoveVerify:    false,           // Par défaut : pas de vérification hash
 		MoveOverwrite: "skip",          // Par défaut : ignorer les conflits
 		SkipCorrupted: true,            // Par défaut : ignorer les fichiers corrompus
+
+		// Renommage
+		RenamePattern:  "",          // Par défaut : pas de renommage
+		RenameConflict: "increment", // Par défaut : ajouter un suffixe numérique
+		RenamePreview:  false,       // Par défaut : appliquer le renommage
 	}
 }
 
@@ -196,6 +206,18 @@ func ParseFlags() Options {
 	flag.BoolVar(&opts.SkipCorrupted, "skip-corrupted", opts.SkipCorrupted,
 		"Ignorer les fichiers corrompus lors du déplacement (défaut: true)")
 
+	// Options de renommage (renamer)
+	flag.StringVar(&opts.RenamePattern, "rename", opts.RenamePattern,
+		"Pattern de renommage ({date}_{seq:4}.{ext}, ou preset: simple, dated, photo, video)")
+	flag.StringVar(&opts.RenamePattern, "p", opts.RenamePattern,
+		"Pattern de renommage (raccourci)")
+	flag.StringVar(&opts.RenameConflict, "conflict", opts.RenameConflict,
+		"Stratégie de conflit: increment, skip, hash, timestamp (défaut: increment)")
+	flag.BoolVar(&opts.RenamePreview, "preview", opts.RenamePreview,
+		"Aperçu du renommage sans l'appliquer")
+	flag.BoolVar(&opts.RenamePreview, "P", opts.RenamePreview,
+		"Aperçu du renommage (raccourci)")
+
 	// flag.Parse() lit os.Args et remplit les variables liées aux flags
 	flag.Parse()
 
@@ -261,6 +283,34 @@ DÉPLACEMENT DE FICHIERS:
     --overwrite <MODE>     Conflits: skip, overwrite, rename (défaut: skip)
     --skip-corrupted       Ignorer les fichiers corrompus (défaut: true)
 
+RENOMMAGE:
+    -p, --rename <PATTERN> Pattern de renommage ou preset
+    --conflict <MODE>      Conflits: increment, skip, hash, timestamp (défaut: increment)
+    -P, --preview          Aperçu du renommage sans l'appliquer
+
+PATTERNS DE RENOMMAGE:
+    Variables disponibles:
+      {date}          Date (YYYY-MM-DD)
+      {datetime}      Date et heure (YYYY-MM-DD_HHMMSS)
+      {year}/{month}/{day}  Composants de date
+      {hour}/{minute}/{second}  Composants d'heure
+      {camera}        Modèle de l'appareil photo (EXIF)
+      {original}      Nom de fichier original (sans extension)
+      {ext}           Extension du fichier
+      {type}          Type de fichier (jpg, mp4, etc.)
+      {category}      Catégorie (images, videos, etc.)
+      {hash:8}        Hash du fichier (8 premiers caractères)
+      {seq:4}         Numéro séquentiel (4 chiffres avec zéros)
+      {width}/{height}  Dimensions de l'image
+
+    Presets prédéfinis:
+      simple     {original}.{ext}
+      dated      {date}_{original}.{ext}
+      photo      {year}/{month}/{camera}_{seq:4}.{ext}
+      video      {year}/{month}/{date}_{seq:4}.{ext}
+      hash       {hash:8}.{ext}
+      full       {year}/{month}/{day}/{camera}_{datetime}_{seq:4}.{ext}
+
 MODES D'ORGANISATION PAR DATE (-d, --date-org):
     none            Pas d'organisation par date (défaut)
     year            Par année : images/originals/2024/
@@ -315,6 +365,18 @@ EXEMPLES:
 
     # Créer des hardlinks (même partition, pas d'espace supplémentaire)
     filesorter -e scan.jsonl -M /destination --move-mode hardlink
+
+    # Renommer les fichiers avec un pattern simple
+    filesorter -e scan.jsonl -M /sorted -p dated
+
+    # Renommer les photos avec appareil et séquence
+    filesorter -e scan.jsonl -M /sorted -p "{camera}_{date}_{seq:4}.{ext}"
+
+    # Aperçu du renommage sans copier
+    filesorter -e scan.jsonl -M /sorted -p photo -P
+
+    # Renommer avec hash pour les conflits
+    filesorter -e scan.jsonl -M /sorted -p dated --conflict hash
 
 WORKFLOW RECOMMANDÉ:
     1. Premier scan avec validation : filesorter -s /data -e scan.jsonl -V

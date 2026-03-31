@@ -80,6 +80,13 @@ go build -o filesorter .
 - Gestion des conflits : `skip`, `overwrite`, `rename`
 - Progress bar en temps réel
 
+### ✏️ Renommage intelligent
+- Patterns personnalisables : `{date}_{camera}_{seq:4}.{ext}`
+- Variables : date, datetime, year, month, camera, original, hash, seq, width, height
+- Presets : `simple`, `dated`, `photo`, `video`, `hash`, `full`
+- Gestion des conflits : `increment`, `skip`, `hash`, `timestamp`
+- Mode preview pour prévisualiser sans appliquer
+
 ### 📊 Rapports
 - Export JSONL (un objet par ligne, streamable)
 - Rapport HTML interactif avec graphiques
@@ -136,6 +143,28 @@ go build -o filesorter .
 | `--overwrite <MODE>` | `skip`, `overwrite`, `rename` |
 | `--skip-corrupted` | Ignorer les fichiers corrompus |
 
+### Renommage
+| Option | Description |
+|--------|-------------|
+| `-p, --rename <PATTERN>` | Pattern de renommage ou preset |
+| `--conflict <MODE>` | `increment`, `skip`, `hash`, `timestamp` |
+| `-P, --preview` | Aperçu du renommage sans l'appliquer |
+
+### Patterns de renommage
+| Variable | Description |
+|----------|-------------|
+| `{date}` | Date YYYY-MM-DD |
+| `{datetime}` | Date et heure YYYY-MM-DD_HHMMSS |
+| `{year}`, `{month}`, `{day}` | Composants de date |
+| `{camera}` | Modèle d'appareil (EXIF) |
+| `{original}` | Nom de fichier original |
+| `{ext}` | Extension du fichier |
+| `{hash:N}` | N premiers caractères du hash |
+| `{seq:N}` | Numéro séquentiel (N chiffres) |
+| `{width}`, `{height}` | Dimensions de l'image |
+
+**Presets disponibles :** `simple`, `dated`, `photo`, `video`, `hash`, `full`
+
 ### Rapports
 | Option | Description |
 |--------|-------------|
@@ -159,6 +188,10 @@ FileSorter/
 │   └── audio.go         # MP3, FLAC, WAV, OGG
 ├── dedup/               # Détection de doublons
 ├── mover/               # Copie/déplacement des fichiers
+├── renamer/             # Renommage intelligent
+│   ├── pattern.go       # Parsing des patterns
+│   ├── renamer.go       # Moteur de renommage
+│   └── conflict.go      # Gestion des conflits
 ├── checkpoint/          # Reprise de scan
 ├── exporter/            # Export JSONL
 ├── report/              # Rapport HTML
@@ -183,8 +216,11 @@ FileSorter/
 # Étape 4 : Prévisualiser le déplacement (dry-run)
 ./filesorter -e scan.jsonl -M /sorted -n
 
-# Étape 5 : Déplacer avec vérification
-./filesorter -e scan.jsonl -M /sorted --verify
+# Étape 5 : Prévisualiser le renommage
+./filesorter -e scan.jsonl -M /sorted -p photo -P
+
+# Étape 6 : Déplacer avec renommage et vérification
+./filesorter -e scan.jsonl -M /sorted -p "{date}_{camera}_{seq:4}.{ext}" --verify
 ```
 
 ---
@@ -259,7 +295,7 @@ MIT License
 
 ## 🔜 Roadmap
 
-- [ ] Renommage intelligent (patterns `{date}_{camera}_{seq}.{ext}`)
+- [x] ~~Renommage intelligent (patterns `{date}_{camera}_{seq}.{ext}`)~~
 - [ ] Déduplication active (suppression/liens des doublons)
 - [ ] Interface web pour tri manuel
 - [ ] Détection de similarité d'images (perceptual hash)
