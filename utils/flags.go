@@ -50,6 +50,13 @@ type Options struct {
 	// Options de validation d'intégrité
 	Validate      bool   // Valider l'intégrité des fichiers
 	ValidateTypes string // Types à valider (image,video,audio,all)
+
+	// Options de déplacement (mover)
+	MoveTo        string // Répertoire de destination pour déplacer/copier
+	MoveMode      string // Mode : copy, move, hardlink, symlink
+	MoveVerify    bool   // Vérifier le hash après copie
+	MoveOverwrite string // Gestion des conflits : skip, overwrite, rename
+	SkipCorrupted bool   // Ignorer les fichiers corrompus lors du déplacement
 }
 
 // DefaultOptions retourne les options par défaut.
@@ -79,6 +86,11 @@ func DefaultOptions() Options {
 		HTMLReport:    "",              // Par défaut : pas de rapport HTML
 		Validate:      false,           // Par défaut : pas de validation
 		ValidateTypes: "all",           // Par défaut : valider tous les types supportés
+		MoveTo:        "",              // Par défaut : pas de déplacement
+		MoveMode:      "copy",          // Par défaut : copier (ne pas supprimer les originaux)
+		MoveVerify:    false,           // Par défaut : pas de vérification hash
+		MoveOverwrite: "skip",          // Par défaut : ignorer les conflits
+		SkipCorrupted: true,            // Par défaut : ignorer les fichiers corrompus
 	}
 }
 
@@ -170,6 +182,20 @@ func ParseFlags() Options {
 	flag.StringVar(&opts.ValidateTypes, "validate-types", opts.ValidateTypes,
 		"Types à valider: image, video, audio, all (défaut: all)")
 
+	// Options de déplacement (mover)
+	flag.StringVar(&opts.MoveTo, "move-to", opts.MoveTo,
+		"Destination pour déplacer/copier les fichiers triés")
+	flag.StringVar(&opts.MoveTo, "M", opts.MoveTo,
+		"Destination (raccourci)")
+	flag.StringVar(&opts.MoveMode, "move-mode", opts.MoveMode,
+		"Mode: copy, move, hardlink, symlink (défaut: copy)")
+	flag.BoolVar(&opts.MoveVerify, "verify", opts.MoveVerify,
+		"Vérifier l'intégrité après copie (compare les hash)")
+	flag.StringVar(&opts.MoveOverwrite, "overwrite", opts.MoveOverwrite,
+		"Gestion des conflits: skip, overwrite, rename (défaut: skip)")
+	flag.BoolVar(&opts.SkipCorrupted, "skip-corrupted", opts.SkipCorrupted,
+		"Ignorer les fichiers corrompus lors du déplacement (défaut: true)")
+
 	// flag.Parse() lit os.Args et remplit les variables liées aux flags
 	flag.Parse()
 
@@ -228,6 +254,13 @@ VALIDATION D'INTÉGRITÉ:
     --validate-types       Types à valider: image, video, audio, all (défaut: all)
                            Les fichiers corrompus sont marqués dans le JSONL
 
+DÉPLACEMENT DE FICHIERS:
+    -M, --move-to <PATH>   Destination pour copier/déplacer les fichiers triés
+    --move-mode <MODE>     Mode: copy, move, hardlink, symlink (défaut: copy)
+    --verify               Vérifier l'intégrité après copie
+    --overwrite <MODE>     Conflits: skip, overwrite, rename (défaut: skip)
+    --skip-corrupted       Ignorer les fichiers corrompus (défaut: true)
+
 MODES D'ORGANISATION PAR DATE (-d, --date-org):
     none            Pas d'organisation par date (défaut)
     year            Par année : images/originals/2024/
@@ -271,10 +304,23 @@ EXEMPLES:
     # Valider uniquement les images
     filesorter -s /data -V --validate-types image
 
+    # Déplacer les fichiers vers une destination triée (mode copie)
+    filesorter -e scan.jsonl -M /destination
+
+    # Déplacer avec vérification d'intégrité
+    filesorter -e scan.jsonl -M /destination --verify
+
+    # Mode déplacement (supprime les originaux après copie)
+    filesorter -e scan.jsonl -M /destination --move-mode move
+
+    # Créer des hardlinks (même partition, pas d'espace supplémentaire)
+    filesorter -e scan.jsonl -M /destination --move-mode hardlink
+
 WORKFLOW RECOMMANDÉ:
     1. Premier scan avec validation : filesorter -s /data -e scan.jsonl -V
     2. Si interrompu : filesorter -s /data -e scan.jsonl -R
     3. Analyse doublons : filesorter -s /data -D -r rapport.html
+    4. Déplacer vers destination : filesorter -e scan.jsonl -M /sorted --verify
 
 NOTES:
     - Le mode dry-run est recommandé pour la première utilisation

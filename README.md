@@ -1,130 +1,265 @@
-# File Recovery Organizer - Projet Go
+# File Recovery Organizer v2.0
 
-## 🎯 Objectif du projet
+<p align="center">
+  <strong>🔧 Outil complet de scan, validation, et organisation de fichiers récupérés</strong>
+</p>
 
-Ce projet a pour but de **scanner et organiser des fichiers récupérés d’un disque dur**, y compris ceux qui :
+---
 
-- n’ont plus leur extension d’origine  
-- ont été renommés en `.txt`  
-- sont dans de nombreux sous-dossiers (ex : `recup_dir.*`)  
+## 🎯 Objectif
 
-L’objectif final est de **retrouver la vraie extension des fichiers** avant de les trier dans des dossiers appropriés, tout en **garantissant la sécurité maximale** (aucune modification des fichiers avant validation).
+Outil en ligne de commande pour **scanner, analyser et organiser des fichiers récupérés** d'un disque dur endommagé. Conçu pour traiter des millions de fichiers provenant de logiciels comme PhotoRec.
+
+### Problèmes résolus
+
+- ✅ Fichiers sans extension ou avec extension `.txt`
+- ✅ Fichiers dispersés dans des milliers de sous-dossiers (`recup_dir.*`)
+- ✅ Fichiers corrompus ou tronqués
+- ✅ Doublons occupant de l'espace inutilement
+- ✅ Métadonnées perdues (dates, noms originaux)
+
+---
+
+## 📦 Installation
+
+```bash
+# Prérequis : Go 1.21+
+git clone https://github.com/votre-repo/FileSorter.git
+cd FileSorter
+go build -o filesorter .
+```
+
+---
+
+## 🚀 Utilisation rapide
+
+```bash
+# 1. Scanner un répertoire
+./filesorter -s /chemin/vers/recovery -e scan.jsonl
+
+# 2. Reprendre un scan interrompu
+./filesorter -s /chemin/vers/recovery -e scan.jsonl -R
+
+# 3. Scanner avec validation d'intégrité
+./filesorter -s /chemin/vers/recovery -e scan.jsonl -V
+
+# 4. Détecter les doublons
+./filesorter -e scan.jsonl -D
+
+# 5. Générer un rapport HTML
+./filesorter -e scan.jsonl -r rapport.html
+
+# 6. Déplacer les fichiers vers leur destination
+./filesorter -e scan.jsonl -M /destination/triée
+```
+
+---
+
+## 📋 Fonctionnalités
+
+### 🔍 Scanner parallèle
+- Parcours récursif ultra-rapide avec workers parallèles
+- Détection de type par magic bytes (pas seulement l'extension)
+- Extraction de métadonnées (EXIF, ID3, MKV, MP4, AVI)
+- Mode resume pour reprendre après interruption (Ctrl+C)
+
+### 🔬 Validation d'intégrité
+- Détection des fichiers **corrompus ou tronqués**
+- Formats supportés : JPEG, PNG, GIF, WebP, BMP, MP4, MKV, AVI, WMV, FLV, MP3, FLAC, WAV, OGG
+- Types d'erreurs : `truncated`, `corrupted`, `invalid_header`, `empty`
+
+### 🔄 Détection de doublons
+- Algorithme en 3 passes : taille → quick hash → full SHA256
+- Parallélisation optimisée
+- Filtre par taille minimale
+- Rapport détaillé de l'espace gaspillé
+
+### 📦 Déplacement intelligent
+- Modes : `copy`, `move`, `hardlink`, `symlink`
+- Vérification d'intégrité post-copie
+- Gestion des conflits : `skip`, `overwrite`, `rename`
+- Progress bar en temps réel
+
+### 📊 Rapports
+- Export JSONL (un objet par ligne, streamable)
+- Rapport HTML interactif avec graphiques
+- Rapport de doublons en JSON
+
+### 📅 Organisation par date
+- Extraction des dates depuis EXIF, MKV, MP4, système de fichiers
+- Modes : `year`, `year-month`, `year-month-day`
+- Fichiers sans date dans `unknown_date/`
+
+---
+
+## 🛠 Options de ligne de commande
+
+### Options générales
+| Option | Description |
+|--------|-------------|
+| `-s, --source <PATH>` | Répertoire source à scanner (défaut: `.`) |
+| `-e, --export <PATH>` | Fichier d'export JSONL (défaut: `scan_results.jsonl`) |
+| `-w, --workers <N>` | Nombre de workers parallèles (défaut: 4, max: 32) |
+| `-n, --dry-run` | Mode simulation |
+| `-v, --verbose` | Affichage détaillé |
+| `-h, --help` | Afficher l'aide |
+
+### Reprise de scan
+| Option | Description |
+|--------|-------------|
+| `-R, --resume` | Reprendre un scan interrompu |
+
+### Validation d'intégrité
+| Option | Description |
+|--------|-------------|
+| `-V, --validate` | Valider l'intégrité des fichiers |
+| `--validate-types` | Types à valider: `image`, `video`, `audio`, `all` |
+
+### Détection de doublons
+| Option | Description |
+|--------|-------------|
+| `-H, --hash` | Calculer les hash SHA256 |
+| `-D, --duplicates` | Générer un rapport de doublons |
+| `-m, --min-size <BYTES>` | Taille minimale (défaut: 1MB) |
+
+### Organisation par date
+| Option | Description |
+|--------|-------------|
+| `-d, --date-org <MODE>` | `none`, `year`, `year-month`, `year-month-day` |
+
+### Déplacement de fichiers
+| Option | Description |
+|--------|-------------|
+| `-M, --move-to <PATH>` | Destination pour le tri |
+| `--move-mode <MODE>` | `copy`, `move`, `hardlink`, `symlink` |
+| `--verify` | Vérifier le hash après copie |
+| `--overwrite <MODE>` | `skip`, `overwrite`, `rename` |
+| `--skip-corrupted` | Ignorer les fichiers corrompus |
+
+### Rapports
+| Option | Description |
+|--------|-------------|
+| `-r, --report <PATH>` | Générer un rapport HTML |
 
 ---
 
 ## 📂 Architecture du projet
 
-```sql
-project/
-│
-├─ main.go # Point d’entrée du programme
-├─ scan/ # Fonctions de scan et inventaire
-│ └─ scan.go
-├─ classify/ # Fonctions de détection des types et signatures
-│ └─ magic.go
-├─ report/ # Génération de rapports JSON ou texte
-│ └─ summary.go
-└─ README.md
+```
+FileSorter/
+├── main.go              # Point d'entrée
+├── scanner/             # Scan parallèle + progress bar
+├── detector/            # Détection de type (magic bytes, patterns)
+├── classifier/          # Catégorisation des fichiers
+├── metadata/            # Extraction EXIF, MKV, MP4, AVI
+├── organizer/           # Organisation par date
+├── validator/           # Validation d'intégrité
+│   ├── image.go         # JPEG, PNG, GIF, WebP, BMP
+│   ├── video.go         # MP4, MKV, AVI, WMV, FLV
+│   └── audio.go         # MP3, FLAC, WAV, OGG
+├── dedup/               # Détection de doublons
+├── mover/               # Copie/déplacement des fichiers
+├── checkpoint/          # Reprise de scan
+├── exporter/            # Export JSONL
+├── report/              # Rapport HTML
+├── types/               # Types communs
+└── utils/               # Flags, helpers
 ```
 
 ---
 
-## 🛠 Fonctionnalités
+## 🔄 Workflow recommandé
 
-### Phase 1 — Scan et inventaire
+```bash
+# Étape 1 : Scan initial avec validation
+./filesorter -s /data/recovery -e scan.jsonl -V -w 8
 
-- Parcours récursif des dossiers (`recup_dir.*`)
-- Comptage des fichiers et dossiers
-- Extraction des extensions existantes
-- Détection des fichiers sans extension ou renommés `.txt`
-- Génération d’un rapport initial (JSON ou TXT)
-- **Aucune modification** des fichiers pendant cette phase
+# Étape 2 : Si interrompu, reprendre
+./filesorter -s /data/recovery -e scan.jsonl -R
 
-### Phase 2 — Détection et correction d’extensions
+# Étape 3 : Analyser les doublons
+./filesorter -e scan.jsonl -D -r rapport.html
 
-- Lecture des premiers octets pour détecter le type réel (signature magique / magic numbers)
-- Détection automatique des types courants : JPEG, PNG, PDF, ZIP, MP3, etc.
-- Ajout d’une future extension pour chaque fichier détecté
-- Fichiers inconnus restant classés dans une catégorie `Inconnus`
+# Étape 4 : Prévisualiser le déplacement (dry-run)
+./filesorter -e scan.jsonl -M /sorted -n
 
-### Phase 3 — Création automatique des dossiers de réception
-
-- Arborescence dynamique basée sur les catégories détectées
-- Exemple :
-- TRI/
-    Images/
-    jpg/
-    png/
-    Vidéos/
-    mp4/
-    Documents/
-    pdf/
-    Audio/
-    mp3/
-    Archives/
-    zip/
-    Inconnus/
-- Aucun déplacement effectué à ce stade — uniquement création de dossiers
-
-### Phase 4 — Tri réel (à faire plus tard)
-
-- Déplacement des fichiers vers leurs dossiers correspondants
-- Gestion des doublons
-- Mise à jour d’un log complet
+# Étape 5 : Déplacer avec vérification
+./filesorter -e scan.jsonl -M /sorted --verify
+```
 
 ---
 
-## ⚙️ Installation
+## 📊 Format JSONL
 
-1. Installer Go : [https://go.dev/dl/](https://go.dev/dl/)  
-2. Cloner ce projet ou télécharger le ZIP  
-3. Dans le terminal, compiler le projet :
- ```bash
- go build main.go
- ```
- Exécuter le programme :
+Chaque ligne du fichier JSONL contient un objet JSON :
 
-./main.exe   # Windows
-./main       # Linux
+```json
+{
+  "path": "/data/recovery/recup_dir.1/f0001234.jpg",
+  "size": 2456789,
+  "type": "jpg",
+  "target_path": "images/photos/2024/01/f0001234.jpg",
+  "valid": true,
+  "valid_details": {"width": "1920", "height": "1080"},
+  "quick_hash": "a1b2c3d4e5f6...",
+  "image_exif": {
+    "date_taken": "2024:01:15 14:30:52",
+    "camera_model": "Canon EOS R5"
+  }
+}
+```
 
-## 🧪 Mode Simulation (recommandé)
+---
 
-Avant de déplacer quoi que ce soit, le programme peut être lancé en mode simulation :
+## 🔧 Types de fichiers supportés
 
-`var dryRun = true`
+### Images
+JPEG, PNG, GIF, WebP, BMP, TIFF, HEIC/HEIF
 
+### Vidéos
+MP4, MKV, WebM, AVI, MOV, WMV, FLV, 3GP, MPEG
 
-- Affiche ce qu’il ferait
-- Ne modifie aucun fichier
-- Idéal pour vérifier l’arborescence et les fichiers à traiter
+### Audio
+MP3, FLAC, WAV, OGG, Opus, AAC, M4A, WMA, AIFF
 
-Pour le tri réel, passer à :
+### Documents
+PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, ODT
 
-`var dryRun = false`
+### Archives
+ZIP, RAR, 7z, TAR, GZ
 
-## 💡 Bonnes pratiques
+---
 
-- Toujours travailler sur une copie des fichiers récupérés
-- Éviter de trier sur un disque différent pour les fichiers volumineux
-- Ne pas interrompre le programme pendant un déplacement
-- Vérifier les logs en cas d’erreur
+## 💡 Conseils
+
+1. **Toujours travailler sur une copie** des fichiers récupérés
+2. **Utiliser le dry-run** avant tout déplacement
+3. **Activer la validation** pour détecter les fichiers corrompus
+4. **Créer des hardlinks** si vous triez sur la même partition (économie d'espace)
+5. **Reprendre avec -R** si le scan est interrompu
+
+---
 
 ## 📝 Notes pédagogiques
 
-Ce projet te permet d’apprendre :
-- Les bases du langage Go : `map`, `slice`, `struct`, fonctions
-- La lecture de fichiers et gestion des dossiers (`os`, `filepath`)
-- La détection de types via signatures binaires (`magic numbers`)
-- La génération de rapports JSON et TXT
-- La création d’un workflow sûr pour manipuler de très gros volumes de fichiers
+Ce projet permet d'apprendre :
+- **Concurrence Go** : goroutines, channels, sync.Pool, WaitGroup
+- **Patterns** : worker pool, fan-out/fan-in, pipeline
+- **Parsing binaire** : magic bytes, EBML (MKV), atoms (MP4), RIFF (AVI)
+- **Design patterns** : registre, factory, interface
+- **CLI** : package flag, gestion des options
 
-## 🔜 Étapes futures
+---
 
-- Ajout d’un tri réel automatisé
-- Détection avancée pour formats rares ou corrompus
-- Interface CLI avec options :
-    - `--dry-run`
-    - `--category images`
-    - `--output json`
+## 📜 Licence
 
-- Gestion des doublons par hash
+MIT License
+
+---
+
+## 🔜 Roadmap
+
+- [ ] Renommage intelligent (patterns `{date}_{camera}_{seq}.{ext}`)
+- [ ] Déduplication active (suppression/liens des doublons)
+- [ ] Interface web pour tri manuel
+- [ ] Détection de similarité d'images (perceptual hash)

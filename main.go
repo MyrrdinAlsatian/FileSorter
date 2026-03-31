@@ -35,6 +35,7 @@ import (
 	"FileRecoveryOrganizer/dedup"
 	"FileRecoveryOrganizer/detector"
 	"FileRecoveryOrganizer/exporter"
+	"FileRecoveryOrganizer/mover"
 	"FileRecoveryOrganizer/organizer"
 	"FileRecoveryOrganizer/report"
 	"FileRecoveryOrganizer/scanner"
@@ -333,6 +334,14 @@ func main() {
 			fmt.Println("   Ouvrez ce fichier dans un navigateur pour visualiser les résultats.")
 		}
 	}
+
+	// ═══════════════════════════════════════════════════════════════════════
+	// ÉTAPE 11 : DÉPLACEMENT DES FICHIERS (si demandé)
+	// ═══════════════════════════════════════════════════════════════════════
+
+	if opts.MoveTo != "" {
+		executeMover(opts, exportPath)
+	}
 }
 
 // printBanner affiche la bannière de l'application.
@@ -490,4 +499,78 @@ func exportDuplicateReport(report *dedup.DuplicateReport, path string) error {
 	encoder := json.NewEncoder(f)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(report)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FONCTIONS DE DÉPLACEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+// executeMover exécute le déplacement des fichiers vers la destination.
+//
+// Cette fonction :
+// 1. Génère un plan à partir du fichier JSONL
+// 2. Affiche un aperçu du plan
+// 3. Exécute les opérations de copie/déplacement
+// 4. Affiche les résultats
+func executeMover(opts utils.Options, jsonlPath string) {
+	fmt.Println()
+	fmt.Println("═══════════════════════════════════════════════════════════════════")
+	fmt.Println("                    📦 DÉPLACEMENT DES FICHIERS")
+	fmt.Println("═══════════════════════════════════════════════════════════════════")
+	fmt.Println()
+
+	// Convertir le mode de chaîne vers le type Mode
+	mode := mover.ModeCopy
+	switch opts.MoveMode {
+	case "move":
+		mode = mover.ModeMove
+	case "hardlink":
+		mode = mover.ModeHardlink
+	case "symlink":
+		mode = mover.ModeSymlink
+	}
+
+	// Configurer les options du mover
+	moverOpts := mover.Options{
+		Mode:          mode,
+		Destination:   opts.MoveTo,
+		DryRun:        opts.DryRun,
+		Verify:        opts.MoveVerify,
+		Workers:       opts.Workers,
+		OverwriteMode: opts.MoveOverwrite,
+		Verbose:       opts.Verbose,
+		SkipCorrupted: opts.SkipCorrupted,
+	}
+
+	// Générer le plan à partir du JSONL
+	fmt.Printf("📋 Génération du plan depuis %s...\n", jsonlPath)
+	plan, err := mover.GeneratePlanFromJSONL(jsonlPath, moverOpts)
+	if err != nil {
+		log.Fatalf("❌ Erreur lors de la génération du plan: %v", err)
+	}
+
+	// Afficher le résumé du plan
+	plan.PrintSummary()
+	plan.PrintStatsByCategory()
+
+	// En mode dry-run, afficher l'aperçu et s'arrêter
+	if opts.DryRun {
+		plan.PrintPreview(20)
+		fmt.Println("🔍 Mode simulation - aucune opération effectuée")
+		return
+	}
+
+	// Vérifier qu'il y a des opérations à effectuer
+	if plan.TotalFiles == 0 {
+		fmt.Println("ℹ️  Aucun fichier à déplacer")
+		return
+	}
+
+	// Exécuter le plan
+	fmt.Printf("\n🚀 Démarrage du %s vers %s...\n\n", mode, opts.MoveTo)
+	executor := mover.NewExecutor(plan)
+	result := executor.Execute()
+
+	// Afficher les résultats
+	result.PrintResults()
 }
