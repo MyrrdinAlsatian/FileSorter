@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"FileRecoveryOrganizer/classifier"
@@ -23,6 +24,7 @@ import (
 	"FileRecoveryOrganizer/enricher"
 	"FileRecoveryOrganizer/metadata"
 	"FileRecoveryOrganizer/types"
+	"FileRecoveryOrganizer/validator"
 )
 
 // Result est un alias vers types.Result pour simplifier les imports
@@ -36,17 +38,21 @@ type SkipChecker interface {
 
 // ScanOptions contient toutes les options pour le scan parallèle.
 type ScanOptions struct {
-	ClassifyOpts classifier.ClassifyOptions // Options de classification
-	ComputeHash  bool                       // Calculer les hash pour détecter les doublons
-	SkipChecker  SkipChecker                // Vérificateur de fichiers à ignorer (nil = aucun)
+	ClassifyOpts  classifier.ClassifyOptions // Options de classification
+	ComputeHash   bool                       // Calculer les hash pour détecter les doublons
+	SkipChecker   SkipChecker                // Vérificateur de fichiers à ignorer (nil = aucun)
+	Validate      bool                       // Valider l'intégrité des fichiers
+	ValidateTypes string                     // Types à valider (image, video, audio, all)
 }
 
 // DefaultScanOptions retourne les options de scan par défaut.
 func DefaultScanOptions() ScanOptions {
 	return ScanOptions{
-		ClassifyOpts: classifier.DefaultClassifyOptions(),
-		ComputeHash:  false,
-		SkipChecker:  nil,
+		ClassifyOpts:  classifier.DefaultClassifyOptions(),
+		ComputeHash:   false,
+		SkipChecker:   nil,
+		Validate:      false,
+		ValidateTypes: "all",
 	}
 }
 
@@ -254,6 +260,18 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 					}
 				}
 
+				// Validation d'intégrité des fichiers (si activée)
+				if opts.Validate && shouldValidate(fileType, opts.ValidateTypes) {
+					validResult := validator.ValidateFile(path)
+					result.Valid = &validResult.Valid
+					if !validResult.Valid && validResult.Error != nil {
+						result.ValidationError = validResult.Error.Error()
+					}
+					if validResult.Details != nil && len(validResult.Details) > 0 {
+						result.ValidDetails = validResult.Details
+					}
+				}
+
 				// Classe le fichier dans une catégorie (avec options de date)
 				classifier.ClassifyWithOptions(&result, opts.ClassifyOpts)
 
@@ -292,4 +310,40 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 	wg.Wait()                // Attend que tous les workers aient terminé
 	close(collector.Results) // Ferme le canal des résultats
 	return err
+}
+
+// shouldValidate détermine si un fichier doit être validé selon son type.
+//
+// validateTypes peut être :
+// - "all" : valider tous les types supportés
+// - "image" : valider uniquement les images
+// - "video" : valider uniquement les vidéos
+// - "audio" : valider uniquement les fichiers audio
+// - combinaisons séparées par des virgules : "image,video"
+func shouldValidate(fileType string, validateTypes string) bool {
+	if validateTypes == "all" {
+		return true
+	}
+
+	// Déterminer la catégorie du fichier
+	var category string
+	switch {
+	case metadata.IsImageType(fileType):
+		category = "image"
+	case metadata.IsVideoType(fileType):
+		category = "video"
+	case metadata.IsAudioType(fileType):
+		category = "audio"
+	default:
+		return false // Type non supporté pour la validation
+	}
+
+	// Vérifier si la catégorie est dans la liste
+	types := strings.Split(strings.ToLower(validateTypes), ",")
+	for _, t := range types {
+		if strings.TrimSpace(t) == category {
+			return true
+		}
+	}
+	return false
 }

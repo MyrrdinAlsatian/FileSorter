@@ -46,6 +46,10 @@ type Options struct {
 
 	// Options de rapport
 	HTMLReport string // Chemin du rapport HTML (vide = pas de rapport)
+
+	// Options de validation d'intégrité
+	Validate      bool   // Valider l'intégrité des fichiers
+	ValidateTypes string // Types à valider (image,video,audio,all)
 }
 
 // DefaultOptions retourne les options par défaut.
@@ -61,18 +65,20 @@ type Options struct {
 // - DefaultXxx() : retourne une valeur (Xxx)
 func DefaultOptions() Options {
 	return Options{
-		ExportPath:  "scan_results.jsonl",
-		SourceDir:   ".",
-		DryRun:      false,
-		Verbose:     false,
-		Workers:     4,
-		Help:        false,
-		Resume:      false,           // Par défaut : nouveau scan
-		DateOrg:     "none",          // Par défaut : pas d'organisation par date
-		ComputeHash: false,           // Par défaut : pas de calcul de hash
-		HashReport:  false,           // Par défaut : pas de rapport de doublons
-		MinDupSize:  1 * 1024 * 1024, // Par défaut : 1 MB minimum pour les doublons
-		HTMLReport:  "",              // Par défaut : pas de rapport HTML
+		ExportPath:    "scan_results.jsonl",
+		SourceDir:     ".",
+		DryRun:        false,
+		Verbose:       false,
+		Workers:       4,
+		Help:          false,
+		Resume:        false,           // Par défaut : nouveau scan
+		DateOrg:       "none",          // Par défaut : pas d'organisation par date
+		ComputeHash:   false,           // Par défaut : pas de calcul de hash
+		HashReport:    false,           // Par défaut : pas de rapport de doublons
+		MinDupSize:    1 * 1024 * 1024, // Par défaut : 1 MB minimum pour les doublons
+		HTMLReport:    "",              // Par défaut : pas de rapport HTML
+		Validate:      false,           // Par défaut : pas de validation
+		ValidateTypes: "all",           // Par défaut : valider tous les types supportés
 	}
 }
 
@@ -156,6 +162,14 @@ func ParseFlags() Options {
 	flag.StringVar(&opts.HTMLReport, "r", opts.HTMLReport,
 		"Rapport HTML (raccourci)")
 
+	// Options de validation d'intégrité
+	flag.BoolVar(&opts.Validate, "validate", opts.Validate,
+		"Valider l'intégrité des fichiers (détecter les fichiers corrompus)")
+	flag.BoolVar(&opts.Validate, "V", opts.Validate,
+		"Valider l'intégrité (raccourci)")
+	flag.StringVar(&opts.ValidateTypes, "validate-types", opts.ValidateTypes,
+		"Types à valider: image, video, audio, all (défaut: all)")
+
 	// flag.Parse() lit os.Args et remplit les variables liées aux flags
 	flag.Parse()
 
@@ -209,6 +223,11 @@ DÉTECTION DE DOUBLONS:
 RAPPORTS:
     -r, --report <PATH>    Générer un rapport HTML interactif au chemin spécifié
 
+VALIDATION D'INTÉGRITÉ:
+    -V, --validate         Valider l'intégrité des fichiers (détecter les corrompus)
+    --validate-types       Types à valider: image, video, audio, all (défaut: all)
+                           Les fichiers corrompus sont marqués dans le JSONL
+
 MODES D'ORGANISATION PAR DATE (-d, --date-org):
     none            Pas d'organisation par date (défaut)
     year            Par année : images/originals/2024/
@@ -246,8 +265,14 @@ EXEMPLES:
     # Générer un rapport HTML complet
     filesorter -s /data -r rapport.html
 
+    # Valider l'intégrité des fichiers (détecter les corrompus)
+    filesorter -s /data -V
+
+    # Valider uniquement les images
+    filesorter -s /data -V --validate-types image
+
 WORKFLOW RECOMMANDÉ:
-    1. Premier scan : filesorter -s /data -e scan.jsonl
+    1. Premier scan avec validation : filesorter -s /data -e scan.jsonl -V
     2. Si interrompu : filesorter -s /data -e scan.jsonl -R
     3. Analyse doublons : filesorter -s /data -D -r rapport.html
 
@@ -255,6 +280,7 @@ NOTES:
     - Le mode dry-run est recommandé pour la première utilisation
     - Les fichiers ne sont jamais modifiés pendant le scan
     - L'export JSONL contient toutes les informations pour un tri ultérieur
+    - La validation (-V) détecte les fichiers tronqués ou corrompus
     - L'organisation par date utilise les métadonnées EXIF/MKV quand disponibles
     - Le mode resume (-R) lit le JSONL existant et saute les fichiers déjà traités
 `)

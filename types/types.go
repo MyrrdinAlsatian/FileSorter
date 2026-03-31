@@ -67,4 +67,9 @@ type Result struct {
 	// Champs pour la détection de doublons
 	QuickHash string `json:"quick_hash,omitempty"` // Hash rapide (début+fin) pour filtrage
 	FullHash  string `json:"full_hash,omitempty"`  // Hash SHA256 complet pour confirmation
+
+	// Champs pour la validation d'intégrité
+	Valid           *bool             `json:"valid,omitempty"`            // nil si pas validé, true/false sinon
+	ValidationError string            `json:"validation_error,omitempty"` // Message d'erreur de validation
+	ValidDetails    map[string]string `json:"valid_details,omitempty"`    // Détails (dimensions, durée, etc.)
 }

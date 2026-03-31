@@ -22,6 +22,24 @@ import "time"
 var ImageTypes = map[string]bool{
 	"jpg": true, "jpeg": true, "png": true,
 	"tiff": true, "heic": true, "heif": true, "webp": true,
+	"gif": true, "bmp": true,
+}
+
+// VideoTypes est une map contenant tous les types de vidéos supportés.
+var VideoTypes = map[string]bool{
+	"mp4": true, "m4v": true, "mov": true,
+	"mkv": true, "webm": true, "mka": true,
+	"avi": true, "wmv": true, "asf": true,
+	"flv": true, "3gp": true, "3g2": true,
+	"mpeg": true, "mpg": true, "ts": true,
+}
+
+// AudioTypes est une map contenant tous les types audio supportés.
+var AudioTypes = map[string]bool{
+	"mp3": true, "flac": true, "wav": true, "wave": true,
+	"ogg": true, "oga": true, "opus": true,
+	"aac": true, "m4a": true, "wma": true,
+	"aiff": true, "aif": true, "alac": true,
 }
 
 // IsImageType vérifie si le type de fichier fourni est une image supportée.
@@ -39,6 +57,16 @@ var ImageTypes = map[string]bool{
 //   - bool : true si c'est une image supportée, false sinon
 func IsImageType(fileType string) bool {
 	return ImageTypes[fileType]
+}
+
+// IsVideoType vérifie si le type de fichier fourni est une vidéo supportée.
+func IsVideoType(fileType string) bool {
+	return VideoTypes[fileType]
+}
+
+// IsAudioType vérifie si le type de fichier fourni est un fichier audio supporté.
+func IsAudioType(fileType string) bool {
+	return AudioTypes[fileType]
 }
 
 // FileData contient toutes les métadonnées de date et d'identification d'un fichier.

@@ -100,6 +100,11 @@ func main() {
 		fmt.Println()
 	}
 
+	if opts.Validate {
+		fmt.Printf("🔬 Validation d'intégrité activée (types: %s)\n", opts.ValidateTypes)
+		fmt.Println()
+	}
+
 	// ═══════════════════════════════════════════════════════════════════════
 	// ÉTAPE 2.5 : CHARGEMENT DU CHECKPOINT (si --resume)
 	// ═══════════════════════════════════════════════════════════════════════
@@ -254,9 +259,11 @@ func main() {
 
 	// Construire les options de scan complètes
 	scanOpts := scanner.ScanOptions{
-		ClassifyOpts: classifyOpts,
-		ComputeHash:  opts.ComputeHash || opts.HashReport, // Activer le hash si demandé
-		SkipChecker:  processedFiles,                      // Pour le mode resume (sera nil si pas de resume)
+		ClassifyOpts:  classifyOpts,
+		ComputeHash:   opts.ComputeHash || opts.HashReport, // Activer le hash si demandé
+		SkipChecker:   processedFiles,                      // Pour le mode resume (sera nil si pas de resume)
+		Validate:      opts.Validate,                       // Valider l'intégrité des fichiers
+		ValidateTypes: opts.ValidateTypes,                  // Types à valider
 	}
 
 	// ScanDirectoryParallelWithScanOptions lance plusieurs workers (goroutines) pour traiter
