@@ -262,7 +262,7 @@ func ParseFlags() Options {
 
 // PrintUsage affiche l'aide d'utilisation.
 func PrintUsage() {
-	fmt.Println(`
+	fmt.Print(`
 ╔═══════════════════════════════════════════════════════════════════╗
 ║              FILE RECOVERY ORGANIZER - Aide                       ║
 ╚═══════════════════════════════════════════════════════════════════╝
