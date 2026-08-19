@@ -66,8 +66,15 @@ func detectFileType(path string) string {
 	defer bufferPool.Put(buf)
 
 	n, err := f.Read(buf)
-	if err != nil && err != io.EOF || n == 0 {
+	if err != nil && err != io.EOF {
 		return "Error reading file"
+	}
+	if n == 0 {
+		ext := filepath.Ext(path)
+		if len(ext) > 1 {
+			return ext[1:]
+		}
+		return "empty"
 	}
 
 	// filetype.Match identifie le type basé sur les magic numbers
