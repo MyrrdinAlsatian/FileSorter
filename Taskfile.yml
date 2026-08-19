@@ -1,0 +1,61 @@
+version: '3'
+
+## Taskfile pour les commandes de développement Go.
+## Installation de Task : https://taskfile.dev/
+
+tasks:
+  default:
+    desc: Formater, tester et analyser le projet
+    deps: [fmt, test, vet]
+
+  fmt:
+    desc: Formater tous les packages Go
+    cmds:
+      - go fmt ./...
+
+  test:
+    desc: Lancer tous les tests
+    cmds:
+      - go test ./...
+
+  test-verbose:
+    desc: Lancer les tests avec leur sortie détaillée
+    cmds:
+      - go test -v ./...
+
+  test-race:
+    desc: Détecter les accès concurrents dangereux
+    cmds:
+      - go test -race ./...
+
+  coverage:
+    desc: Générer et afficher la couverture des tests
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out
+
+  coverage-html:
+    desc: Générer un rapport HTML de couverture
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  vet:
+    desc: Exécuter go vet
+    cmds:
+      - go vet ./...
+
+  build:
+    desc: Compiler l'application
+    cmds:
+      - go build -o filesorter.exe .
+
+  check:
+    desc: Exécuter les contrôles principaux
+    deps: [fmt, test, vet]
+
+  clean:
+    desc: Supprimer les artefacts de couverture et de compilation
+    platforms: [windows]
+    cmds:
+      - powershell -NoProfile -Command "Remove-Item -LiteralPath coverage.out,coverage.html,filesorter.exe -Force -ErrorAction SilentlyContinue"
