@@ -2,6 +2,7 @@
 package organizer
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -115,7 +116,7 @@ func TestOrganizeByDate(t *testing.T) {
 				UnknownDateFolder: "unknown_date",
 				IncludeCategory:   true,
 			},
-			expected: "images/originals/2024/03",
+			expected: filepath.Join("images", "originals", "2024", "03"),
 		},
 		{
 			name:         "Year sans catégorie",
@@ -220,7 +221,7 @@ func TestOrganizeByDate_NoMetadata(t *testing.T) {
 	}
 
 	got := OrganizeByDate(result, "documents", opts)
-	expected := "documents/sans_date"
+	expected := filepath.Join("documents", "sans_date")
 
 	if got != expected {
 		t.Errorf("OrganizeByDate() sans métadonnées = %q, want %q", got, expected)
