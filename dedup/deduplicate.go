@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -338,6 +339,19 @@ func (d *Deduplicator) processGroup(group *DuplicateGroup) DeduplicateResult {
 }
 
 // selectOriginal sélectionne le fichier à garder selon la stratégie.
+func selectShortest(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	shortest := paths[0]
+	for _, path := range paths[1:] {
+		if len(path) < len(shortest) {
+			shortest = path
+		}
+	}
+	return shortest
+}
+
 func (d *Deduplicator) selectOriginal(paths []string) string {
 	if len(paths) == 0 {
 		return ""
@@ -375,7 +389,7 @@ func (d *Deduplicator) selectOriginal(paths []string) string {
 			}
 		}
 		// Fallback : chemin le plus court
-		return d.selectOriginal(paths[:1])
+		return selectShortest(paths)
 
 	default:
 		return paths[0]
@@ -458,18 +472,25 @@ func (d *Deduplicator) replaceWithHardlink(duplicatePath, originalPath string) e
 	if d.Options.Verbose {
 		fmt.Printf("  [HARDLINK] %s -> %s\n", duplicatePath, originalPath)
 	}
+	return d.replaceWithLink(duplicatePath, func(tempPath string) error {
+		return os.Link(originalPath, tempPath)
+	})
+	/*
+		if d.Options.Verbose {
+			fmt.Printf("  [HARDLINK] %s -> %s\n", duplicatePath, originalPath)
+		}
 
-	// Supprimer le doublon
-	if err := os.Remove(duplicatePath); err != nil {
-		return fmt.Errorf("cannot remove %s: %w", duplicatePath, err)
-	}
+		// Supprimer le doublon
+		if err := os.Remove(duplicatePath); err != nil {
+			return fmt.Errorf("cannot remove %s: %w", duplicatePath, err)
+		}
 
-	// Créer le hardlink
-	if err := os.Link(originalPath, duplicatePath); err != nil {
-		return fmt.Errorf("cannot create hardlink: %w", err)
-	}
+		// Créer le hardlink
+		if err := os.Link(originalPath, duplicatePath); err != nil {
+			return fmt.Errorf("cannot create hardlink: %w", err)
+		}
 
-	return nil
+		return nil */
 }
 
 // replaceWithSymlink remplace un fichier par un lien symbolique.
@@ -477,23 +498,77 @@ func (d *Deduplicator) replaceWithSymlink(duplicatePath, originalPath string) er
 	if d.Options.Verbose {
 		fmt.Printf("  [SYMLINK] %s -> %s\n", duplicatePath, originalPath)
 	}
-
-	// Calculer le chemin relatif pour le symlink
 	relPath, err := filepath.Rel(filepath.Dir(duplicatePath), originalPath)
 	if err != nil {
-		relPath = originalPath // Utiliser le chemin absolu si relatif échoue
+		relPath = originalPath
+	}
+	return d.replaceWithLink(duplicatePath, func(tempPath string) error {
+		return os.Symlink(relPath, tempPath)
+	})
+	/*
+		if d.Options.Verbose {
+			fmt.Printf("  [SYMLINK] %s -> %s\n", duplicatePath, originalPath)
+		}
+
+		// Calculer le chemin relatif pour le symlink
+		relPath, err := filepath.Rel(filepath.Dir(duplicatePath), originalPath)
+		if err != nil {
+			relPath = originalPath // Utiliser le chemin absolu si relatif échoue
+		}
+
+		// Supprimer le doublon
+		if err := os.Remove(duplicatePath); err != nil {
+			return fmt.Errorf("cannot remove %s: %w", duplicatePath, err)
+		}
+
+		// Créer le symlink
+		if err := os.Symlink(relPath, duplicatePath); err != nil {
+			return fmt.Errorf("cannot create symlink: %w", err)
+		}
+
+		return nil */
+}
+
+// replaceWithLink installe un lien avec une stratégie de remplacement
+// récupérable : l'ancien fichier est sauvegardé avant le remplacement.
+func (d *Deduplicator) replaceWithLink(path string, createLink func(string) error) error {
+	tempFile, err := os.CreateTemp(filepath.Dir(path), ".dedup-link-*")
+	if err != nil {
+		return fmt.Errorf("cannot create temporary link path: %w", err)
+	}
+	tempPath := tempFile.Name()
+	if err := tempFile.Close(); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("cannot close temporary link path: %w", err)
+	}
+	if err := os.Remove(tempPath); err != nil {
+		return fmt.Errorf("cannot prepare temporary link path: %w", err)
+	}
+	if err := createLink(tempPath); err != nil {
+		return fmt.Errorf("cannot create replacement link: %w", err)
 	}
 
-	// Supprimer le doublon
-	if err := os.Remove(duplicatePath); err != nil {
-		return fmt.Errorf("cannot remove %s: %w", duplicatePath, err)
+	backupFile, err := os.CreateTemp(filepath.Dir(path), ".dedup-backup-*")
+	if err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("cannot create backup path: %w", err)
 	}
+	backupPath := backupFile.Name()
+	backupFile.Close()
+	os.Remove(backupPath)
 
-	// Créer le symlink
-	if err := os.Symlink(relPath, duplicatePath); err != nil {
-		return fmt.Errorf("cannot create symlink: %w", err)
+	if err := os.Rename(path, backupPath); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("cannot move original to backup: %w", err)
 	}
-
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Rename(backupPath, path)
+		os.Remove(tempPath)
+		return fmt.Errorf("cannot install replacement link: %w", err)
+	}
+	if err := os.Remove(backupPath); err != nil {
+		return fmt.Errorf("replacement installed but backup cleanup failed: %w", err)
+	}
 	return nil
 }
 
@@ -504,8 +579,12 @@ func containsPath(fullPath, subPath string) bool {
 	subPath = filepath.Clean(subPath)
 
 	// Vérifier si subPath est un préfixe de fullPath
-	return len(fullPath) >= len(subPath) &&
-		fullPath[:len(subPath)] == subPath
+	if fullPath == subPath {
+		return true
+	}
+	return len(fullPath) > len(subPath) &&
+		fullPath[:len(subPath)] == subPath &&
+		strings.HasPrefix(fullPath[len(subPath):], string(filepath.Separator))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
