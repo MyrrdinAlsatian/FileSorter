@@ -54,7 +54,7 @@ Exercices : construire un petit buffer binaire, tester une taille invalide et un
 
 Notions : bytes, endianess, `io.Reader`, formats conteneurs.
 
-## Étape 8 : préparer Wails
+## Étape 8 : préparer une interface utilisateur
 
 Les opérations longues devraient accepter un `context.Context` :
 
@@ -69,7 +69,7 @@ func Scan(ctx context.Context, source string) error {
 }
 ```
 
-Il faudra séparer le cœur métier, la CLI qui affiche, et l'API Wails qui publie des événements UI.
+Il faut séparer le cœur métier de l'affichage et des événements UI. Les choix spécifiques à Wails sont décrits dans [WAILS_GUIDE.md](WAILS_GUIDE.md).
 
 ## Routine recommandée
 
@@ -90,4 +90,3 @@ Il faudra séparer le cœur métier, la CLI qui affiche, et l'API Wails qui publ
 - L'opération peut-elle être répétée ?
 - Le test dépend-il de l'OS ou de l'ordre d'exécution ?
 - Cette fonction fait-elle trop de choses ?
-

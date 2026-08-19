@@ -17,7 +17,7 @@ func Scan(ctx context.Context, source string) error {
 }
 ```
 
-Dans Wails, cela permettra d'ajouter un bouton « Annuler ».
+Une interface graphique pourra ensuite utiliser cette annulation.
 
 Bonnes pratiques :
 
@@ -97,7 +97,7 @@ func NewScanner(options ...Option) *Scanner {
 }
 ```
 
-Cette technique est intéressante si l'API Wails doit rester stable malgré l'ajout d'options.
+Cette technique est intéressante si l'API publique doit rester stable malgré l'ajout d'options.
 
 ## 7. Injection de dépendances
 
@@ -167,7 +167,7 @@ Le projet utilise encore beaucoup de `fmt.Printf`. `log/slog` permettrait de pro
 logger.Info("file processed", "path", path, "type", fileType)
 ```
 
-La CLI pourrait afficher du texte tandis que Wails recevrait des événements structurés.
+La CLI pourrait afficher du texte tandis qu'une interface recevrait des événements structurés.
 
 ## 13. `errors.Join`
 
@@ -193,7 +193,7 @@ Les fichiers pourraient être nommés `diskspace_windows.go` et `diskspace_unix.
 
 Un dossier `internal/` interdit l'import depuis un autre module. Les helpers qui ne font pas partie de l'API publique pourraient y être déplacés.
 
-Une API publique doit rester petite : exposer uniquement les types et fonctions nécessaires à la CLI et à Wails.
+Une API publique doit rester petite : exposer uniquement les types et fonctions nécessaires aux interfaces de l'application.
 
 # Bonnes pratiques à retenir
 
@@ -242,4 +242,6 @@ Une API publique doit rester petite : exposer uniquement les types et fonctions 
 - retourner des résultats plutôt que d'imprimer dans les packages ;
 - utiliser des interfaces petites aux frontières du système ;
 - conserver la CLI comme une interface parmi d'autres ;
-- préparer le cœur métier à recevoir un contexte pour Wails.
+- préparer le cœur métier à recevoir un contexte pour une éventuelle interface graphique.
+
+Pour l'intégration avec Wails, consulter [WAILS_GUIDE.md](WAILS_GUIDE.md).

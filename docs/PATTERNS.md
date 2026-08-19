@@ -58,7 +58,7 @@ Le pipeline commun reste le même, seul le choix change.
 
 ## Plan puis exécution
 
-`mover` sépare la génération d'un `Plan`, la prévisualisation et l'exécution. C'est adapté aux opérations dangereuses et à une future interface Wails.
+`mover` sépare la génération d'un `Plan`, la prévisualisation et l'exécution. C'est adapté aux opérations dangereuses et à plusieurs interfaces utilisateur.
 
 ## Dry-run
 
@@ -107,11 +107,10 @@ Go privilégie la composition à l'héritage :
 
 ## Patterns à améliorer
 
-Pour la future interface Wails :
+Pour une future interface graphique, voir aussi [WAILS_GUIDE.md](WAILS_GUIDE.md) :
 
 - remplacer les `fmt.Printf` métier par des résultats et événements ;
 - ajouter `context.Context` aux opérations longues ;
 - injecter les dépendances système pour simuler les erreurs ;
 - remplacer les chaînes d'action par des types plus stricts ;
 - rendre les opérations annulables.
-

@@ -8,6 +8,7 @@ Cette documentation explique FileSorter et les concepts de Go utilisés dans le 
 2. [Guide Go appliqué au projet](GO_GUIDE.md)
 3. [Patterns utilisés](PATTERNS.md)
 4. [Parcours d'apprentissage](LEARNING_PATH.md)
+5. [Guide Wails séparé](WAILS_GUIDE.md)
 
 ## Packages importants
 
