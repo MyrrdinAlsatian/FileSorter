@@ -149,6 +149,100 @@ benchmarks ou `pprof`. Les questions à examiner sont :
 Un réglage unique de workers est simple ; des limites distinctes peuvent devenir
 utiles si les phases du pipeline ont des coûts très différents.
 
+## Fonctionnalités qui pourraient être ajoutées
+
+Les idées ci-dessous sont des évolutions du produit, pas seulement des
+améliorations internes. Elles sont regroupées afin de choisir une prochaine
+fonctionnalité selon le problème réel à résoudre.
+
+### Récupération et fiabilité des fichiers
+
+| Fonctionnalité | Utilité | Difficulté |
+|---|---|---|
+| Quarantaine des fichiers suspects | Copier ou déplacer les fichiers corrompus dans un dossier dédié plutôt que de les mélanger aux fichiers valides. | Faible |
+| Rapport des fichiers non reconnus | Produire une liste des extensions, signatures inconnues et tailles pour améliorer les détecteurs. | Faible |
+| Reprise d'un déplacement | Rejouer uniquement les opérations inachevées après une interruption, grâce au journal d'opérations. | Moyenne |
+| Annulation d'un déplacement | Restaurer les fichiers déplacés à partir du journal, quand les chemins n'ont pas été réutilisés. | Moyenne |
+| Conservation des attributs | Préserver permissions, dates, attributs cachés et, lorsque possible, ACL. | Moyenne |
+| Politique pour les liens symboliques | Choisir explicitement de suivre, ignorer ou traiter comme un lien les symlinks rencontrés pendant le scan. | Moyenne |
+| Détection de fichiers incomplets | Identifier des séries de fragments, des tailles anormalement faibles ou des en-têtes présents sans fin de fichier valide. | Élevée |
+
+### Recherche, filtrage et tri
+
+| Fonctionnalité | Utilité | Difficulté |
+|---|---|---|
+| Filtres avancés | Inclure ou exclure selon le type, la taille, la date, le dossier, la validité ou la présence de métadonnées. | Faible |
+| Règles de classement personnalisées | Permettre des règles comme « photos de 2024 vers `Photos/2024` » ou « PDF vers `Documents` ». | Moyenne |
+| Prévisualisation du plan | Exporter le plan en JSON, CSV ou tableau avant toute écriture. | Faible |
+| Recherche dans le JSONL | Rechercher un fichier par nom, hash, date, appareil photo ou catégorie sans refaire un scan. | Moyenne |
+| Index local | Stocker les résultats dans SQLite pour filtrer rapidement plusieurs millions de fichiers. | Élevée |
+| Détection de noms similaires | Regrouper `IMG_0001`, `IMG_0001 (1)` et variantes pour aider au nettoyage manuel. | Moyenne |
+| Étiquettes manuelles | Ajouter des tags comme `à_conserver`, `à_vérifier` ou `famille`. | Moyenne |
+
+### Doublons et similarité
+
+| Fonctionnalité | Utilité | Difficulté |
+|---|---|---|
+| Choix interactif du fichier à garder | Proposer les métadonnées et chemins de chaque groupe de doublons avant une action. | Moyenne |
+| Regroupement par contenu proche | Identifier des photos redimensionnées ou réencodées qui ne partagent pas le même SHA-256. | Élevée |
+| Perceptual hash d'images | Détecter des images visuellement semblables avec des hashes comme dHash ou pHash. | Élevée |
+| Détection de vidéos similaires | Comparer quelques images-clés ou métadonnées plutôt que le fichier entier. | Élevée |
+| Gestion des doublons par règles | Toujours garder, par exemple, le fichier avec la meilleure résolution, les métadonnées EXIF ou le chemin prioritaire. | Moyenne |
+| Rapport d'espace récupérable | Simuler plusieurs stratégies de déduplication et comparer l'espace économisé. | Faible |
+
+### Métadonnées et formats
+
+| Fonctionnalité | Utilité | Difficulté |
+|---|---|---|
+| Plus de formats RAW | Reconnaître CR2/CR3, NEF, ARW, DNG et leurs métadonnées utiles. | Moyenne |
+| Plus de formats de documents | Extraire titre, auteur, date et pages depuis PDF, Office ou EPUB. | Moyenne |
+| Métadonnées audio enrichies | Lire artiste, album, piste et jaquette pour une organisation musicale plus pertinente. | Moyenne |
+| OCR optionnel | Rechercher du texte dans des scans ou des captures d'écran. | Élevée |
+| Géolocalisation | Organiser les photos par pays, ville ou coordonnées GPS lorsqu'elles sont présentes. | Moyenne |
+| Fuseaux horaires et dates incertaines | Signaler les dates ambiguës et permettre de définir une règle de correction. | Moyenne |
+
+### Rapports et automatisation
+
+| Fonctionnalité | Utilité | Difficulté |
+|---|---|---|
+| Rapport JSON de synthèse | Rendre les résultats faciles à exploiter par un script, une CI ou Wails. | Faible |
+| Export CSV | Ouvrir les résultats dans un tableur pour un tri manuel. | Faible |
+| Comparaison de deux scans | Voir les fichiers ajoutés, disparus ou modifiés entre deux exécutions. | Moyenne |
+| Mode surveillance | Scanner automatiquement les nouveaux fichiers d'un dossier à intervalles réguliers. | Moyenne |
+| Hooks post-traitement | Exécuter une commande après un scan ou un déplacement réussi. | Moyenne |
+| Notifications | Prévenir lorsque le scan est fini ou lorsqu'un grand nombre d'erreurs survient. | Faible |
+| Export de métriques | Exposer nombre de fichiers, erreurs, débit et espace économisé pour suivi. | Moyenne |
+
+### Interface Wails
+
+Ces fonctionnalités deviennent particulièrement intéressantes avec une
+interface graphique, mais le cœur métier doit rester utilisable sans elle :
+
+- sélection de source et de destination avec validation immédiate ;
+- aperçu de photos, métadonnées et groupes de doublons ;
+- tableau filtrable des résultats du scan ;
+- comparaison visuelle avant de choisir le fichier à conserver ;
+- suivi de progression, annulation et journal des erreurs ;
+- éditeur de règles de classement et de modèles de renommage ;
+- assistant pas à pas : scanner, examiner, simuler, puis appliquer.
+
+Pour l'architecture de cette interface, voir [WAILS_GUIDE.md](WAILS_GUIDE.md).
+
+### Choisir une prochaine fonctionnalité
+
+Pour progresser en Go sans bloquer le projet, choisir une idée qui possède :
+
+1. une entrée simple (un dossier, un JSONL ou des options) ;
+2. un résultat observable et testable ;
+3. une modification limitée à un ou deux packages ;
+4. un bénéfice réel pour ton propre usage.
+
+Un bon premier choix serait le rapport des fichiers non reconnus, les filtres
+avancés, l'export CSV ou le rapport d'espace récupérable. Ils réutilisent les
+données déjà produites par le scan et permettent de pratiquer les structs, le
+parsing de flags, les fichiers et les tests, sans risquer de modifier les
+fichiers source.
+
 ## Ordre conseillé pour apprendre et avancer
 
 1. Ajouter des tests d'intégration autour de `mover` avec `t.TempDir()`.
