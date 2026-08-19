@@ -2,6 +2,7 @@ package detector
 
 import (
 	"bytes"
+	"encoding/json"
 	"unicode"
 )
 
@@ -138,9 +139,17 @@ func matchCss(buf []byte) (string, bool) {
 }
 
 func matchJson(buf []byte) (string, bool) {
-	// JSON : commence par { ou [ et contient :
-	b := trimLeftSpaces(buf)
-	return "json", (len(b) > 0 && (b[0] == '{' || b[0] == '[') && bytes.Contains(b, []byte(":")))
+	return "json", json.Valid(bytes.TrimSpace(buf))
+}
+
+func matchXML(buf []byte) (string, bool) {
+	b := bytes.ToLower(trimLeftSpaces(buf))
+	return "xml", bytes.HasPrefix(b, []byte("<?xml"))
+}
+
+func matchHTML(buf []byte) (string, bool) {
+	b := bytes.ToLower(trimLeftSpaces(buf))
+	return "html", bytes.HasPrefix(b, []byte("<!doctype html>")) || bytes.HasPrefix(b, []byte("<html"))
 }
 
 func matchMd(buf []byte) (string, bool) {
@@ -153,6 +162,8 @@ func matchMd(buf []byte) (string, bool) {
 // L'ordre compte : les plus spécifiques en premier
 var patternMatchers = []func([]byte) (string, bool){
 	matchPhp,
+	matchXML,
+	matchHTML,
 	matchGo,
 	matchPython,
 	matchJson,
