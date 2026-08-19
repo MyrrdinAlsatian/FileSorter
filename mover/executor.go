@@ -45,7 +45,6 @@ type Executor struct {
 	// Progress bar
 	bar *progressbar.ProgressBar
 }
-
 // NewExecutor crée un nouvel exécuteur pour un plan.
 func NewExecutor(plan *Plan) *Executor {
 	return &Executor{
@@ -317,7 +316,7 @@ func (e *Executor) moveFile(src, dst string) error {
 	if err := os.Remove(src); err != nil {
 		// La copie a réussi mais on n'a pas pu supprimer la source
 		// Ce n'est pas critique, on retourne juste un warning
-		return nil // On considère ça comme un succès
+		return fmt.Errorf("copy succeeded but cannot remove source: %w", err)
 	}
 
 	return nil
@@ -366,7 +365,7 @@ func CheckDiskSpace(plan *Plan) (bool, int64, error) {
 	// Sur Unix, on utiliserait syscall.Statfs
 
 	// Pour l'instant, on retourne toujours OK
-	return true, plan.TotalSize * 2, nil // Simule 2x l'espace nécessaire disponible
+	return false, 0, fmt.Errorf("disk space check is not implemented")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
