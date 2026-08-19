@@ -10,6 +10,7 @@ Cette documentation explique FileSorter et les concepts de Go utilisés dans le 
 4. [Parcours d'apprentissage](LEARNING_PATH.md)
 5. [Guide Wails séparé](WAILS_GUIDE.md)
 6. [Utiliser le Taskfile](TASKFILE.md)
+7. [Pistes d'amélioration du projet](IMPROVEMENTS.md)
 
 ## Packages importants
 
