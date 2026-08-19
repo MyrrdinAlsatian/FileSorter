@@ -36,3 +36,18 @@ gofmt -w .
 
 Sous Windows, `go test -race` nécessite un compilateur C. Les tests classiques restent utiles si cet outil manque.
 
+## Taskfile
+
+Le fichier `Taskfile.yml` regroupe les commandes de développement. Avec [Task](https://taskfile.dev/) installé :
+
+```bash
+task
+task test
+task test-race
+task coverage
+task coverage-html
+task build
+task clean
+```
+
+`task` lance le formatage, les tests et `go vet`. Le task `test-race` peut nécessiter un compilateur C sous Windows.
