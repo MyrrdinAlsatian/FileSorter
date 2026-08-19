@@ -16,6 +16,8 @@
 //   - Pattern : non utilisé pour les binaires
 package detector
 
+import "os"
+
 // Detect détermine le type de fichier en utilisant plusieurs stratégies.
 //
 // La fonction essaie les méthodes dans cet ordre :
@@ -41,7 +43,11 @@ func Detect(path string) string {
 	}
 
 	// Deuxième tentative : analyse du contenu (patterns)
-	patternType := detectPattern([]byte(path))
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "unknown"
+	}
+	patternType := detectPattern(content)
 
 	if patternType != "other extension" {
 		return patternType
