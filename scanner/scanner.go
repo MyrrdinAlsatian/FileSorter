@@ -71,7 +71,10 @@ func DefaultScanOptions() ScanOptions {
 // Voir ScanDirectoryParallel pour une version plus performante.
 func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error {
 
-	filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 
 		if err != nil {
 			fmt.Printf("Erreur d'accès à %q: %v\n", path, err)
@@ -93,7 +96,7 @@ func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error
 
 	})
 
-	return nil
+	return err
 }
 
 // CountFile compte tous les fichiers et calcule la taille totale d'un répertoire.
@@ -115,7 +118,7 @@ func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error
 func CountFile(sourceDir string, stats *types.Stats) error {
 	return filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			stats.TotalDirs++
@@ -123,7 +126,7 @@ func CountFile(sourceDir string, stats *types.Stats) error {
 		}
 		info, err := d.Info()
 		if err != nil {
-			return nil
+			return err
 		}
 		stats.TotalSize += info.Size()
 		stats.TotalFiles++
