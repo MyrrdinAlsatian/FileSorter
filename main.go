@@ -25,10 +25,13 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strings"
 
 	"FileRecoveryOrganizer/checkpoint"
 	"FileRecoveryOrganizer/classifier"
@@ -567,6 +570,24 @@ func executeMover(opts utils.Options, jsonlPath string, sourceDir string) {
 		return
 	}
 
+	confirmed, err := confirmMoverExecution(
+		os.Stdin,
+		os.Stderr,
+		mode,
+		opts.MoveOverwrite,
+		opts.Yes,
+		plan.TotalFiles,
+		opts.MoveTo,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Erreur pendant la confirmation: %v\n", err)
+		return
+	}
+	if !confirmed {
+		fmt.Println("Opération annulée; aucun fichier n'a été modifié.")
+		return
+	}
+
 	// Exécuter le plan
 	fmt.Printf("\n🚀 Démarrage du %s vers %s...\n\n", mode, opts.MoveTo)
 	executor := mover.NewExecutor(plan)
@@ -574,4 +595,39 @@ func executeMover(opts utils.Options, jsonlPath string, sourceDir string) {
 
 	// Afficher les résultats
 	result.PrintResults()
+}
+
+// confirmMoverExecution demande une validation uniquement pour les actions destructrices.
+// Le lecteur et l'écrivain sont des paramètres pour tester l'interaction sans terminal réel.
+func confirmMoverExecution(reader io.Reader, writer io.Writer, mode mover.Mode, overwriteMode string, yes bool, operationCount int, destination string) (bool, error) {
+	destructive := mode == mover.ModeMove || overwriteMode == "overwrite"
+	if yes || !destructive {
+		return true, nil
+	}
+
+	_, err := fmt.Fprintf(writer, "Confirmer %d opération(s) vers %q", operationCount, destination)
+	if err != nil {
+		return false, err
+	}
+	if mode == mover.ModeMove {
+		if _, err := fmt.Fprint(writer, ", avec suppression des sources après copie validée"); err != nil {
+			return false, err
+		}
+	}
+	if overwriteMode == "overwrite" {
+		if _, err := fmt.Fprint(writer, ", avec remplacement des fichiers existants"); err != nil {
+			return false, err
+		}
+	}
+	if _, err := fmt.Fprint(writer, " ? [o/N] "); err != nil {
+		return false, err
+	}
+
+	// Scanner lit une réponse par ligne; EOF sans réponse vaut un refus, choix sûr pour un terminal fermé.
+	answer := bufio.NewScanner(reader)
+	if !answer.Scan() {
+		return false, answer.Err()
+	}
+	response := strings.ToLower(strings.TrimSpace(answer.Text()))
+	return response == "o" || response == "oui" || response == "y" || response == "yes", nil
 }
