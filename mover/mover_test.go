@@ -153,6 +153,7 @@ func TestAppendOperationJournalWritesJSONLAndAppends(t *testing.T) {
 					Source:      "source-a.jpg",
 					Destination: "destination-a.jpg",
 					Size:        12,
+					Hash:        hex.EncodeToString(make([]byte, sha256.Size)),
 					Status:      StatusSuccess,
 					EndTime:     timestamp,
 				}},
@@ -195,6 +196,7 @@ func TestAppendOperationJournalWritesJSONLAndAppends(t *testing.T) {
 		Source        string          `json:"source"`
 		Destination   string          `json:"destination"`
 		Size          int64           `json:"size"`
+		SHA256        string          `json:"sha256"`
 		Status        OperationStatus `json:"status"`
 		Error         string          `json:"error"`
 	}
@@ -204,7 +206,7 @@ func TestAppendOperationJournalWritesJSONLAndAppends(t *testing.T) {
 	if err := json.Unmarshal(lines[1], &second); err != nil {
 		t.Fatalf("decode second journal line: %v", err)
 	}
-	if first.SchemaVersion != 1 || first.Timestamp != timestamp || first.Action != ModeMove || first.Source != "source-a.jpg" || first.Destination != "destination-a.jpg" || first.Size != 12 || first.Status != StatusSuccess {
+	if first.SchemaVersion != 1 || first.Timestamp != timestamp || first.Action != ModeMove || first.Source != "source-a.jpg" || first.Destination != "destination-a.jpg" || first.Size != 12 || first.SHA256 != hex.EncodeToString(make([]byte, sha256.Size)) || first.Status != StatusSuccess {
 		t.Fatalf("first journal entry = %#v", first)
 	}
 	if second.SchemaVersion != 1 || second.Source != "source-b.jpg" || second.Status != StatusFailed || second.Error != "copy failed" {
@@ -430,6 +432,178 @@ func TestExecutorReportsJournalWriteErrorSeparately(t *testing.T) {
 	}
 	if _, err := os.Stat(destination); err != nil {
 		t.Fatalf("successful destination missing: %v", err)
+	}
+}
+
+func TestResumeOperationsFromJournalRequiresVerifiedDestination(t *testing.T) {
+	expectedData := []byte("verified")
+	expectedDigest := sha256.Sum256(expectedData)
+	expectedHash := hex.EncodeToString(expectedDigest[:])
+	otherDigest := sha256.Sum256([]byte("another"))
+	otherHash := hex.EncodeToString(otherDigest[:])
+	tests := []struct {
+		name                 string
+		destinationData      []byte
+		destinationMissing   bool
+		destinationDirectory bool
+		journalAction        Mode
+		journalSource        string
+		journalDestination   string
+		journalSize          int64
+		journalHash          string
+		wantResumed          int
+		wantUnverified       int
+		wantOperationState   OperationStatus
+	}{
+		{
+			name:               "matching destination hash",
+			destinationData:    expectedData,
+			journalHash:        expectedHash,
+			wantResumed:        1,
+			wantOperationState: StatusSuccess,
+		},
+		{
+			name:               "same size but changed content",
+			destinationData:    []byte("tampered"),
+			journalHash:        expectedHash,
+			wantUnverified:     1,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:               "journal hash differs from plan",
+			destinationData:    expectedData,
+			journalHash:        otherHash,
+			wantUnverified:     1,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:               "legacy journal without hash",
+			destinationData:    expectedData,
+			wantUnverified:     1,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:               "missing destination",
+			destinationMissing: true,
+			journalHash:        expectedHash,
+			wantUnverified:     1,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:                 "destination is a directory",
+			destinationDirectory: true,
+			journalHash:          expectedHash,
+			wantUnverified:       1,
+			wantOperationState:   StatusPending,
+		},
+		{
+			name:               "action differs from plan",
+			destinationData:    expectedData,
+			journalAction:      ModeCopy,
+			journalHash:        expectedHash,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:               "source differs from plan",
+			destinationData:    expectedData,
+			journalSource:      "different-source.bin",
+			journalHash:        expectedHash,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:               "destination differs from plan",
+			destinationData:    expectedData,
+			journalDestination: "different-destination.bin",
+			journalHash:        expectedHash,
+			wantOperationState: StatusPending,
+		},
+		{
+			name:               "size differs from plan",
+			destinationData:    expectedData,
+			journalSize:        int64(len(expectedData) + 1),
+			journalHash:        expectedHash,
+			wantOperationState: StatusPending,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			destination := filepath.Join(root, "destination", "file.bin")
+			if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if test.destinationDirectory {
+				if err := os.Mkdir(destination, 0755); err != nil {
+					t.Fatal(err)
+				}
+			} else if !test.destinationMissing {
+				if err := os.WriteFile(destination, test.destinationData, 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			plan := NewPlan(Options{
+				Mode:        ModeMove,
+				Destination: filepath.Dir(destination),
+				Workers:     1,
+			})
+			source := filepath.Join(root, "source.bin")
+			plan.AddOperation(Operation{
+				Source:      source,
+				Destination: destination,
+				Size:        int64(len(expectedData)),
+				Hash:        expectedHash,
+			})
+			journalAction := test.journalAction
+			if journalAction == "" {
+				journalAction = ModeMove
+			}
+			journalSource := test.journalSource
+			if journalSource == "" {
+				journalSource = source
+			}
+			journalDestination := test.journalDestination
+			if journalDestination == "" {
+				journalDestination = destination
+			}
+			journalSize := test.journalSize
+			if journalSize == 0 {
+				journalSize = int64(len(expectedData))
+			}
+			entries := []OperationJournalEntry{{
+				SchemaVersion: 1,
+				Timestamp:     time.Date(2026, time.October, 1, 12, 30, 0, 0, time.UTC),
+				Action:        journalAction,
+				Source:        journalSource,
+				Destination:   journalDestination,
+				Size:          journalSize,
+				Status:        StatusSuccess,
+				SHA256:        test.journalHash,
+			}}
+
+			resume, err := ResumeOperationsFromJournal(context.Background(), plan, entries)
+			if err != nil {
+				t.Fatalf("ResumeOperationsFromJournal error = %v", err)
+			}
+			if resume.Resumed != test.wantResumed || resume.Unverified != test.wantUnverified {
+				t.Fatalf("resume report = %#v, want resumed=%d unverified=%d", resume, test.wantResumed, test.wantUnverified)
+			}
+			if plan.Operations[0].Status != test.wantOperationState {
+				t.Fatalf("operation status = %q, want %q", plan.Operations[0].Status, test.wantOperationState)
+			}
+			if plan.Operations[0].Resumed != (test.wantResumed == 1) {
+				t.Fatalf("operation resumed = %t, want %t", plan.Operations[0].Resumed, test.wantResumed == 1)
+			}
+
+			if test.wantResumed == 1 {
+				executor := NewExecutor(plan)
+				execution := executor.Execute()
+				if execution.Succeeded != 1 || execution.Resumed != 1 || execution.Failed != 0 || execution.BytesCopied != 0 {
+					t.Fatalf("resumed execution = %#v", execution)
+				}
+			}
+		})
 	}
 }
 

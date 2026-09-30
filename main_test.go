@@ -10,20 +10,22 @@ import (
 
 func TestConfirmMoverExecution(t *testing.T) {
 	tests := []struct {
-		name          string
-		mode          mover.Mode
-		overwriteMode mover.OverwriteMode
-		yes           bool
-		input         string
-		wantConfirmed bool
-		wantPrompt    bool
+		name           string
+		mode           mover.Mode
+		overwriteMode  mover.OverwriteMode
+		yes            bool
+		input          string
+		operationCount int
+		wantConfirmed  bool
+		wantPrompt     bool
 	}{
-		{name: "copy without overwrite needs no prompt", mode: mover.ModeCopy, overwriteMode: mover.ConflictSkip, wantConfirmed: true},
-		{name: "move can be declined", mode: mover.ModeMove, overwriteMode: mover.ConflictSkip, input: "n\n", wantPrompt: true},
-		{name: "French confirmation accepts oui", mode: mover.ModeMove, overwriteMode: mover.ConflictSkip, input: "oui\n", wantConfirmed: true, wantPrompt: true},
-		{name: "overwrite asks even in copy mode", mode: mover.ModeCopy, overwriteMode: mover.ConflictOverwrite, input: "y\n", wantConfirmed: true, wantPrompt: true},
-		{name: "yes bypasses the prompt", mode: mover.ModeMove, overwriteMode: mover.ConflictOverwrite, yes: true, wantConfirmed: true},
-		{name: "end of input is a refusal", mode: mover.ModeMove, overwriteMode: mover.ConflictSkip, wantPrompt: true},
+		{name: "copy without overwrite needs no prompt", mode: mover.ModeCopy, overwriteMode: mover.ConflictSkip, operationCount: 3, wantConfirmed: true},
+		{name: "move can be declined", mode: mover.ModeMove, overwriteMode: mover.ConflictSkip, input: "n\n", operationCount: 3, wantPrompt: true},
+		{name: "French confirmation accepts oui", mode: mover.ModeMove, overwriteMode: mover.ConflictSkip, input: "oui\n", operationCount: 3, wantConfirmed: true, wantPrompt: true},
+		{name: "overwrite asks even in copy mode", mode: mover.ModeCopy, overwriteMode: mover.ConflictOverwrite, input: "y\n", operationCount: 3, wantConfirmed: true, wantPrompt: true},
+		{name: "yes bypasses the prompt", mode: mover.ModeMove, overwriteMode: mover.ConflictOverwrite, yes: true, operationCount: 3, wantConfirmed: true},
+		{name: "no remaining operations needs no prompt", mode: mover.ModeMove, overwriteMode: mover.ConflictOverwrite, operationCount: 0, wantConfirmed: true},
+		{name: "end of input is a refusal", mode: mover.ModeMove, overwriteMode: mover.ConflictSkip, operationCount: 3, wantPrompt: true},
 	}
 
 	for _, test := range tests {
@@ -35,7 +37,7 @@ func TestConfirmMoverExecution(t *testing.T) {
 				test.mode,
 				test.overwriteMode,
 				test.yes,
-				3,
+				test.operationCount,
 				"organized",
 			)
 			if err != nil {
