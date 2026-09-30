@@ -9,6 +9,7 @@ package mover
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -33,6 +34,14 @@ import (
 // 4. Détection des conflits
 // 5. Ajout au plan
 func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
+	return GeneratePlanFromJSONLContext(context.Background(), jsonlPath, opts)
+}
+
+// GeneratePlanFromJSONLContext génère un plan et vérifie l'annulation entre les lignes JSONL.
+func GeneratePlanFromJSONLContext(ctx context.Context, jsonlPath string, opts Options) (*Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	sourceRoot, destinationRoot, err := validatePlanRoots(opts)
 	if err != nil {
 		return nil, err
@@ -61,6 +70,9 @@ func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
 
 	lineNum := 0
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		lineNum++
 		line := scanner.Text()
 
@@ -132,10 +144,16 @@ func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading JSONL: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Calculer le nombre de répertoires utilisés
 	dirs := make(map[string]bool)
 	for _, op := range plan.Operations {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		dirs[filepath.Dir(op.Destination)] = true
 	}
 	plan.DirectoriesUsed = len(dirs)

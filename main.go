@@ -26,11 +26,13 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 
 	"FileRecoveryOrganizer/checkpoint"
@@ -56,6 +58,9 @@ func main() {
 	// ParseFlags() utilise le package "flag" de la bibliothèque standard
 	// pour lire les arguments de ligne de commande (ex: -s /chemin -v)
 	opts := utils.ParseFlags()
+	// NotifyContext transforme Ctrl+C en annulation propagée aux opérations longues.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
 	// Déterminer le répertoire source
 	// Le "." représente le répertoire courant en informatique
@@ -162,9 +167,9 @@ func main() {
 	// ═══════════════════════════════════════════════════════════════════════
 
 	// Compter les fichiers AVANT le scan pour afficher une barre de progression
-	err := scanner.CountFile(sourceDir, stats)
+	err := scanner.CountFileContext(ctx, sourceDir, stats)
 	if err != nil {
-		fmt.Println("Error during the file count process")
+		fmt.Println("Error during the file count process:", err)
 		return
 	}
 
@@ -276,14 +281,10 @@ func main() {
 	//
 	// CONCEPT : Les closures "capturent" les variables de leur environnement
 	// Ici, `bar` est capturé par la closure
-	err = scanner.ScanDirectoryParallelWithScanOptions(sourceDir, collector, statsSafe, func() {
+	err = scanner.ScanDirectoryParallelWithScanOptionsContext(ctx, sourceDir, collector, statsSafe, func() {
 		bar.Add(1)
 	}, opts.Workers, scanOpts)
-
-	if err != nil {
-		fmt.Println("\n❌ Error during scanning:", err)
-		return
-	}
+	scanErr := err
 
 	// ═══════════════════════════════════════════════════════════════════════
 	// ÉTAPE 8 : ATTENTE ET FINALISATION
@@ -295,7 +296,13 @@ func main() {
 	<-exportDone
 
 	// Fermer proprement l'exporter (flush le buffer, ferme le fichier)
-	jsonExporter.Close()
+	if closeErr := jsonExporter.Close(); closeErr != nil {
+		log.Printf("⚠️  Failed to close JSON exporter: %v", closeErr)
+	}
+	if scanErr != nil {
+		fmt.Println("\n❌ Error during scanning:", scanErr)
+		return
+	}
 
 	if exportErr != nil {
 		log.Printf("⚠️  Some errors occurred during export")
@@ -312,7 +319,12 @@ func main() {
 	var duplicateReport *dedup.DuplicateReport
 	if opts.HashReport && duplicateFinder != nil {
 		fmt.Println("\n🔍 Analyse des doublons en cours...")
-		duplicateReport = duplicateFinder.FindDuplicates()
+		var err error
+		duplicateReport, err = duplicateFinder.FindDuplicatesContext(ctx)
+		if err != nil {
+			fmt.Println("\n❌ Error during duplicate analysis:", err)
+			return
+		}
 		printDuplicateReport(duplicateReport, opts.Verbose)
 
 		// Exporter le rapport en JSON
@@ -343,7 +355,7 @@ func main() {
 	// ═══════════════════════════════════════════════════════════════════════
 
 	if opts.MoveTo != "" {
-		executeMover(opts, exportPath, sourceDir)
+		executeMover(ctx, opts, exportPath, sourceDir)
 	}
 }
 
@@ -515,7 +527,7 @@ func exportDuplicateReport(report *dedup.DuplicateReport, path string) error {
 // 2. Affiche un aperçu du plan
 // 3. Exécute les opérations de copie/déplacement
 // 4. Affiche les résultats
-func executeMover(opts utils.Options, jsonlPath string, sourceDir string) {
+func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sourceDir string) {
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
 	fmt.Println("                    📦 DÉPLACEMENT DES FICHIERS")
@@ -548,9 +560,10 @@ func executeMover(opts utils.Options, jsonlPath string, sourceDir string) {
 
 	// Générer le plan à partir du JSONL
 	fmt.Printf("📋 Génération du plan depuis %s...\n", jsonlPath)
-	plan, err := mover.GeneratePlanFromJSONL(jsonlPath, moverOpts)
+	plan, err := mover.GeneratePlanFromJSONLContext(ctx, jsonlPath, moverOpts)
 	if err != nil {
-		log.Fatalf("❌ Erreur lors de la génération du plan: %v", err)
+		log.Printf("❌ Erreur lors de la génération du plan: %v", err)
+		return
 	}
 
 	// Afficher le résumé du plan
@@ -591,7 +604,7 @@ func executeMover(opts utils.Options, jsonlPath string, sourceDir string) {
 	// Exécuter le plan
 	fmt.Printf("\n🚀 Démarrage du %s vers %s...\n\n", mode, opts.MoveTo)
 	executor := mover.NewExecutor(plan)
-	result := executor.Execute()
+	result := executor.ExecuteContext(ctx)
 
 	// Afficher les résultats
 	result.PrintResults()

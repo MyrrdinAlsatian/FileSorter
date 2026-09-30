@@ -10,6 +10,7 @@ package mover
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -65,6 +66,11 @@ func NewExecutor(plan *Plan) *Executor {
 // 2. N workers (goroutines) traitent les opérations en parallèle
 // 3. Un WaitGroup attend que tous les workers aient fini
 func (e *Executor) Execute() *ExecutionResult {
+	return e.ExecuteContext(context.Background())
+}
+
+// ExecuteContext exécute le plan jusqu'à sa fin ou jusqu'à l'annulation du contexte.
+func (e *Executor) ExecuteContext(ctx context.Context) *ExecutionResult {
 	result := &ExecutionResult{
 		Plan:      e.plan,
 		StartTime: time.Now(),
@@ -115,9 +121,17 @@ func (e *Executor) Execute() *ExecutionResult {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for idx := range jobs {
-				e.executeOperation(idx)
-				e.bar.Add(1)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case idx, ok := <-jobs:
+					if !ok {
+						return
+					}
+					e.executeOperation(ctx, idx)
+					e.bar.Add(1)
+				}
 			}
 		}()
 	}
@@ -125,13 +139,28 @@ func (e *Executor) Execute() *ExecutionResult {
 	// Envoyer les opérations aux workers
 	for i := range e.plan.Operations {
 		if e.plan.Operations[i].Status == StatusPending {
-			jobs <- i
+			select {
+			case <-ctx.Done():
+				break
+			case jobs <- i:
+			}
+			if ctx.Err() != nil {
+				break
+			}
 		}
 	}
 	close(jobs)
 
 	// Attendre la fin
 	wg.Wait()
+	if ctx.Err() != nil {
+		// Les jobs non distribués sont comptés comme échoués pour rendre l'interruption visible.
+		for i := range e.plan.Operations {
+			if e.plan.Operations[i].Status == StatusPending {
+				e.recordError(i, ctx.Err())
+			}
+		}
+	}
 	e.bar.Finish()
 
 	// Compiler les résultats
@@ -141,16 +170,22 @@ func (e *Executor) Execute() *ExecutionResult {
 	result.BytesCopied = atomic.LoadInt64(&e.bytesCopied)
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
-	result.Errors = e.errors
+	e.errMu.Lock()
+	result.Errors = append([]OperationError(nil), e.errors...)
+	e.errMu.Unlock()
 
 	return result
 }
 
 // executeOperation exécute une opération individuelle.
-func (e *Executor) executeOperation(idx int) {
+func (e *Executor) executeOperation(ctx context.Context, idx int) {
 	op := &e.plan.Operations[idx]
 	op.StartTime = time.Now()
 	op.Status = StatusRunning
+	if err := ctx.Err(); err != nil {
+		e.recordError(idx, err)
+		return
+	}
 
 	// Une vérification d'intégrité fiable exige toujours les 32 octets du SHA-256.
 	expectedHash := ""
@@ -165,6 +200,10 @@ func (e *Executor) executeOperation(idx int) {
 	var err error
 
 	// Créer le répertoire de destination si nécessaire
+	if err = ctx.Err(); err != nil {
+		e.recordError(idx, err)
+		return
+	}
 	destDir := filepath.Dir(op.Destination)
 	if err = os.MkdirAll(destDir, 0755); err != nil {
 		e.recordError(idx, fmt.Errorf("cannot create directory: %w", err))
@@ -194,9 +233,9 @@ func (e *Executor) executeOperation(idx int) {
 	// Exécuter selon le mode
 	switch e.options.Mode {
 	case ModeCopy:
-		err = e.copyFileAtomic(op.Source, op.Destination, expectedHash)
+		err = e.copyFileAtomicContext(ctx, op.Source, op.Destination, expectedHash)
 	case ModeMove:
-		err = e.moveFileWithHash(op.Source, op.Destination, expectedHash)
+		err = e.moveFileWithHashContext(ctx, op.Source, op.Destination, expectedHash)
 	case ModeHardlink:
 		err = os.Link(op.Source, op.Destination)
 	case ModeSymlink:
@@ -253,11 +292,18 @@ var bufferPool = sync.Pool{
 }
 
 func (e *Executor) copyFile(src, dst string) error {
-	return e.copyFileAtomic(src, dst, "")
+	return e.copyFileAtomicContext(context.Background(), src, dst, "")
 }
 
 // copyFileAtomic publie une copie seulement après copie complète et vérification éventuelle.
 func (e *Executor) copyFileAtomic(src, dst, expectedHash string) error {
+	return e.copyFileAtomicContext(context.Background(), src, dst, expectedHash)
+}
+
+func (e *Executor) copyFileAtomicContext(ctx context.Context, src, dst, expectedHash string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Ouvrir le fichier source
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -295,8 +341,11 @@ func (e *Executor) copyFileAtomic(src, dst, expectedHash string) error {
 	buf := *bufPtr
 
 	// Copier avec le buffer
-	if _, err = io.CopyBuffer(tempFile, srcFile, buf); err != nil {
+	if _, err = io.CopyBuffer(tempFile, contextReader{ctx: ctx, reader: srcFile}, buf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
+	}
+	if err = ctx.Err(); err != nil {
+		return err
 	}
 
 	// Copier les métadonnées avant Sync pour inclure aussi ces changements sur le disque.
@@ -319,8 +368,17 @@ func (e *Executor) copyFileAtomic(src, dst, expectedHash string) error {
 	}
 
 	// Le hash est vérifié sur le temporaire : une copie invalide n'atteint jamais le chemin final.
-	if expectedHash != "" && !e.verifyHash(tempPath, expectedHash) {
-		return fmt.Errorf("hash verification failed")
+	if expectedHash != "" {
+		valid, verifyErr := e.verifyHashContext(ctx, tempPath, expectedHash)
+		if verifyErr != nil {
+			return verifyErr
+		}
+		if !valid {
+			return fmt.Errorf("hash verification failed")
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
 	}
 
 	if err = os.Rename(tempPath, dst); err != nil {
@@ -338,7 +396,15 @@ func (e *Executor) moveFile(src, dst string) error {
 
 // moveFileWithHash conserve la source jusqu'à la publication d'une copie vérifiée.
 func (e *Executor) moveFileWithHash(src, dst, expectedHash string) error {
-	if err := e.copyFileAtomic(src, dst, expectedHash); err != nil {
+	return e.moveFileWithHashContext(context.Background(), src, dst, expectedHash)
+}
+
+func (e *Executor) moveFileWithHashContext(ctx context.Context, src, dst, expectedHash string) error {
+	if err := e.copyFileAtomicContext(ctx, src, dst, expectedHash); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		// La destination publiée est complète; garder les deux fichiers vaut mieux que perdre la source.
 		return err
 	}
 
@@ -358,14 +424,22 @@ func (e *Executor) moveFileWithHash(src, dst, expectedHash string) error {
 
 // verifyHash vérifie que le hash du fichier correspond à celui attendu.
 func (e *Executor) verifyHash(path string, expectedHash string) bool {
+	valid, err := e.verifyHashContext(context.Background(), path, expectedHash)
+	return err == nil && valid
+}
+
+func (e *Executor) verifyHashContext(ctx context.Context, path string, expectedHash string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	expected, err := hex.DecodeString(expectedHash)
 	if err != nil || len(expected) != sha256.Size {
-		return false
+		return false, nil
 	}
 
 	f, err := os.Open(path)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer f.Close()
 
@@ -375,11 +449,24 @@ func (e *Executor) verifyHash(path string, expectedHash string) bool {
 	bufPtr := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(bufPtr)
 
-	if _, err := io.CopyBuffer(h, f, *bufPtr); err != nil {
-		return false
+	if _, err := io.CopyBuffer(h, contextReader{ctx: ctx, reader: f}, *bufPtr); err != nil {
+		return false, err
 	}
 
-	return bytes.Equal(h.Sum(nil), expected)
+	return bytes.Equal(h.Sum(nil), expected), nil
+}
+
+// contextReader propage l'annulation entre les lectures d'une copie ou d'une vérification.
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(buffer []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(buffer)
 }
 
 // isFullSHA256 vérifie le format hexadécimal et la longueur exacte d'un SHA-256.

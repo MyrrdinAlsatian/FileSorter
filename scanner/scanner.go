@@ -12,6 +12,7 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,7 +117,15 @@ func ScanDirectory(sourceDir string, stats *types.Stats, barUpdate func()) error
 // Retour :
 //   - error : une erreur en cas de problème lors du parcours
 func CountFile(sourceDir string, stats *types.Stats) error {
+	return CountFileContext(context.Background(), sourceDir, stats)
+}
+
+// CountFileContext compte les fichiers en interrompant le parcours si le contexte est annulé.
+func CountFileContext(ctx context.Context, sourceDir string, stats *types.Stats) error {
 	return filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return err
 		}
@@ -192,6 +201,11 @@ func ScanDirectoryParallelWithOptions(sourceDir string, collector *Collector, st
 // Paramètres supplémentaires :
 //   - opts : structure ScanOptions contenant toutes les options
 func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int, opts ScanOptions) error {
+	return ScanDirectoryParallelWithScanOptionsContext(context.Background(), sourceDir, collector, stats, barUpdate, worker, opts)
+}
+
+// ScanDirectoryParallelWithScanOptionsContext permet d'annuler parcours et traitement parallèle.
+func ScanDirectoryParallelWithScanOptionsContext(ctx context.Context, sourceDir string, collector *Collector, stats *SafeStats, barUpdate func(), worker int, opts ScanOptions) error {
 
 	// Canal pour envoyer les chemins de fichiers aux workers
 	// Buffer de 100 permet à plusieurs fichiers d'être en attente
@@ -210,9 +224,21 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 		go func() {
 			defer wg.Done() // Marque cette goroutine comme terminée
 
-			// Boucle qui reçoit les chemins du canal fileCh
-			// range sur un canal recevra les valeurs jusqu'à sa fermeture
-			for path := range fileCh {
+			for {
+				// select permet au worker d'attendre un fichier ou le signal d'annulation.
+				var path string
+				select {
+				case <-ctx.Done():
+					return
+				case receivedPath, ok := <-fileCh:
+					if !ok {
+						return
+					}
+					path = receivedPath
+				}
+				if ctx.Err() != nil {
+					return
+				}
 
 				// Récupère les informations du fichier
 				info, err := os.Stat(path)
@@ -258,8 +284,10 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 				// Calcul du hash pour la détection de doublons (si activé)
 				// Le quick hash est rapide et suffisant pour la plupart des cas
 				if opts.ComputeHash {
-					if hash, err := dedup.ComputeQuickHash(path, info.Size()); err == nil {
+					if hash, err := dedup.ComputeQuickHashContext(ctx, path, info.Size()); err == nil {
 						result.QuickHash = hash
+					} else if ctx.Err() != nil {
+						return
 					}
 				}
 
@@ -278,8 +306,12 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 				// Classe le fichier dans une catégorie (avec options de date)
 				classifier.ClassifyWithOptions(&result, opts.ClassifyOpts)
 
-				// Envoie le résultat dans le canal Results
-				collector.Results <- result
+				// Un worker bloqué sur un canal plein peut lui aussi être libéré par l'annulation.
+				select {
+				case collector.Results <- result:
+				case <-ctx.Done():
+					return
+				}
 
 				// Appelle le callback pour mettre à jour la barre de progression
 				if barUpdate != nil {
@@ -291,6 +323,9 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 
 	// Parcourir le répertoire source et envoyer les chemins de fichiers au canal
 	err := filepath.WalkDir(sourceDir, func(path string, d os.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -304,14 +339,21 @@ func ScanDirectoryParallelWithScanOptions(sourceDir string, collector *Collector
 			return nil
 		}
 
-		// Envoie le chemin au canal (sera reçu par un worker)
-		fileCh <- path
-		return nil
+		// Le producteur abandonne l'envoi si les workers sont arrêtés par le contexte.
+		select {
+		case fileCh <- path:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	})
 
 	close(fileCh)            // Ferme le canal - cela signale aux workers qu'il n'y a plus de fichiers
 	wg.Wait()                // Attend que tous les workers aient terminé
 	close(collector.Results) // Ferme le canal des résultats
+	if err == nil {
+		err = ctx.Err()
+	}
 	return err
 }
 
