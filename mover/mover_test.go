@@ -36,8 +36,13 @@ func TestCopyFileAndVerifyHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := sha256.Sum256(data)
-	if !executor.verifyHash(dst, hex.EncodeToString(hash[:])) {
+	fullHash := hex.EncodeToString(hash[:])
+	if !executor.verifyHash(dst, fullHash) {
 		t.Fatal("verifyHash rejected a copied file")
+	}
+	// Un quick hash n'est qu'un préfixe et ne suffit pas à prouver l'intégrité complète.
+	if executor.verifyHash(dst, fullHash[:8]) {
+		t.Fatal("verifyHash accepted a hash prefix")
 	}
 }
 
@@ -276,5 +281,161 @@ func TestMoveFileRemovesSource(t *testing.T) {
 	}
 	if _, err := os.Stat(dst); err != nil {
 		t.Fatalf("destination missing: %v", err)
+	}
+}
+
+func TestMoveVerificationFailurePreservesSource(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.txt")
+	destination := filepath.Join(dir, "organized", "source.txt")
+	data := []byte("keep the only verified original")
+	if err := os.WriteFile(source, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	options := DefaultOptions()
+	options.Mode = ModeMove
+	options.Verify = true
+	options.Workers = 1
+	plan := NewPlan(options)
+	plan.AddOperation(Operation{
+		Source:      source,
+		Destination: destination,
+		Size:        int64(len(data)),
+		Hash:        "0000000000000000000000000000000000000000000000000000000000000000",
+	})
+
+	// Un hash volontairement faux simule une copie altérée ou un résultat JSONL incohérent.
+	execution := NewExecutor(plan).Execute()
+	if execution.Failed != 1 {
+		t.Fatalf("failed operations = %d, want 1", execution.Failed)
+	}
+
+	remaining, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("la source doit rester disponible après l'échec: %v", err)
+	}
+	if string(remaining) != string(data) {
+		t.Fatalf("contenu source = %q, want %q", remaining, data)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("la destination ne doit pas être publiée après l'échec, erreur Stat = %v", err)
+	}
+}
+
+func TestCopyVerificationFailurePreservesExistingDestination(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.txt")
+	destinationDir := filepath.Join(dir, "organized")
+	destination := filepath.Join(destinationDir, "source.txt")
+	if err := os.Mkdir(destinationDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("new contents"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("old contents"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	options := DefaultOptions()
+	options.Verify = true
+	options.Workers = 1
+	options.OverwriteMode = "overwrite"
+	plan := NewPlan(options)
+	plan.AddOperation(Operation{
+		Source:      source,
+		Destination: destination,
+		Hash:        "0000000000000000000000000000000000000000000000000000000000000000",
+	})
+
+	// L'échec de validation ne doit remplacer ni l'ancien fichier ni laisser le temporaire.
+	execution := NewExecutor(plan).Execute()
+	if execution.Failed != 1 {
+		t.Fatalf("failed operations = %d, want 1", execution.Failed)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("l'ancienne destination doit rester présente: %v", err)
+	}
+	if string(contents) != "old contents" {
+		t.Fatalf("destination = %q, want %q", contents, "old contents")
+	}
+	entries, err := os.ReadDir(destinationDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("nombre de fichiers de destination = %d, want 1 (temporaire nettoyé)", len(entries))
+	}
+}
+
+func TestCopyOverwriteReplacesDestination(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.txt")
+	destinationDir := filepath.Join(dir, "organized")
+	destination := filepath.Join(destinationDir, "source.txt")
+	data := []byte("verified new contents")
+	if err := os.Mkdir(destinationDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("old contents"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(data)
+
+	options := DefaultOptions()
+	options.Verify = true
+	options.Workers = 1
+	options.OverwriteMode = "overwrite"
+	plan := NewPlan(options)
+	plan.AddOperation(Operation{
+		Source:      source,
+		Destination: destination,
+		Hash:        hex.EncodeToString(hash[:]),
+	})
+
+	execution := NewExecutor(plan).Execute()
+	if execution.Succeeded != 1 {
+		t.Fatalf("succeeded operations = %d, want 1; errors: %v", execution.Succeeded, execution.Errors)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != string(data) {
+		t.Fatalf("destination = %q, want %q", contents, data)
+	}
+}
+
+func TestGeneratePlanRejectsDestinationOverSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "input")
+	if err := os.Mkdir(sourceRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(sourceRoot, "source.txt")
+	if err := os.WriteFile(source, []byte("source"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := types.Result{Path: source, Type: "txt", TargetPath: filepath.Join("input", "source.txt")}
+	jsonl, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "scan.jsonl")
+	if err := os.WriteFile(jsonlPath, append(jsonl, '\n'), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	options := DefaultOptions()
+	options.Source = sourceRoot
+	options.Destination = dir
+	if _, err := GeneratePlanFromJSONL(jsonlPath, options); err == nil {
+		t.Fatal("destination resolving to the source file was accepted")
 	}
 }

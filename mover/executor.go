@@ -9,6 +9,7 @@
 package mover
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -45,6 +46,7 @@ type Executor struct {
 	// Progress bar
 	bar *progressbar.ProgressBar
 }
+
 // NewExecutor crée un nouvel exécuteur pour un plan.
 func NewExecutor(plan *Plan) *Executor {
 	return &Executor{
@@ -150,6 +152,16 @@ func (e *Executor) executeOperation(idx int) {
 	op.StartTime = time.Now()
 	op.Status = StatusRunning
 
+	// Une vérification d'intégrité fiable exige toujours les 32 octets du SHA-256.
+	expectedHash := ""
+	if e.options.Verify && (e.options.Mode == ModeCopy || e.options.Mode == ModeMove) {
+		if !isFullSHA256(op.Hash) {
+			e.recordError(idx, fmt.Errorf("full SHA-256 hash required for verification"))
+			return
+		}
+		expectedHash = op.Hash
+	}
+
 	var err error
 
 	// Créer le répertoire de destination si nécessaire
@@ -168,10 +180,12 @@ func (e *Executor) executeOperation(idx int) {
 			atomic.AddInt64(&e.skipped, 1)
 			return
 		case "overwrite":
-			// Supprimer l'existant
-			if err = os.Remove(op.Destination); err != nil {
-				e.recordError(idx, fmt.Errorf("cannot remove existing file: %w", err))
-				return
+			// Pour copy/move, garder l'ancien fichier jusqu'à la publication atomique du nouveau.
+			if e.options.Mode != ModeCopy && e.options.Mode != ModeMove {
+				if err = os.Remove(op.Destination); err != nil {
+					e.recordError(idx, fmt.Errorf("cannot remove existing file: %w", err))
+					return
+				}
 			}
 		}
 		// "rename" est déjà géré lors de la génération du plan
@@ -180,9 +194,9 @@ func (e *Executor) executeOperation(idx int) {
 	// Exécuter selon le mode
 	switch e.options.Mode {
 	case ModeCopy:
-		err = e.copyFile(op.Source, op.Destination)
+		err = e.copyFileAtomic(op.Source, op.Destination, expectedHash)
 	case ModeMove:
-		err = e.moveFile(op.Source, op.Destination)
+		err = e.moveFileWithHash(op.Source, op.Destination, expectedHash)
 	case ModeHardlink:
 		err = os.Link(op.Source, op.Destination)
 	case ModeSymlink:
@@ -194,16 +208,6 @@ func (e *Executor) executeOperation(idx int) {
 	if err != nil {
 		e.recordError(idx, err)
 		return
-	}
-
-	// Vérification d'intégrité (si demandée et hash disponible)
-	if e.options.Verify && op.Hash != "" && (e.options.Mode == ModeCopy || e.options.Mode == ModeMove) {
-		if !e.verifyHash(op.Destination, op.Hash) {
-			e.recordError(idx, fmt.Errorf("hash verification failed"))
-			// Supprimer le fichier corrompu
-			os.Remove(op.Destination)
-			return
-		}
 	}
 
 	// Succès !
@@ -234,7 +238,7 @@ func (e *Executor) recordError(idx int, err error) {
 // OPÉRATIONS DE FICHIERS
 // ═══════════════════════════════════════════════════════════════════════════
 
-// copyFile copie un fichier avec un buffer optimisé.
+// copyFile copie vers un temporaire, puis publie le fichier complet par renommage.
 //
 // CONCEPT : BUFFER POOLING
 // ========================
@@ -249,6 +253,11 @@ var bufferPool = sync.Pool{
 }
 
 func (e *Executor) copyFile(src, dst string) error {
+	return e.copyFileAtomic(src, dst, "")
+}
+
+// copyFileAtomic publie une copie seulement après copie complète et vérification éventuelle.
+func (e *Executor) copyFileAtomic(src, dst, expectedHash string) error {
 	// Ouvrir le fichier source
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -256,12 +265,29 @@ func (e *Executor) copyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	// Créer le fichier destination
-	dstFile, err := os.Create(dst)
+	srcInfo, err := srcFile.Stat()
 	if err != nil {
-		return fmt.Errorf("cannot create destination: %w", err)
+		return fmt.Errorf("cannot inspect source: %w", err)
 	}
-	defer dstFile.Close()
+
+	// Le temporaire est créé dans le même dossier pour que Rename ne change pas de volume.
+	tempFile, err := os.CreateTemp(filepath.Dir(dst), ".filesorter-*.part")
+	if err != nil {
+		return fmt.Errorf("cannot create temporary destination: %w", err)
+	}
+	tempPath := tempFile.Name()
+	tempClosed := false
+	published := false
+	defer func() {
+		if !tempClosed {
+			_ = tempFile.Close()
+		}
+		if !published {
+			// Un temporaire peut avoir hérité de permissions en lecture seule; les retirer avant nettoyage.
+			_ = os.Chmod(tempPath, 0600)
+			_ = os.Remove(tempPath)
+		}
+	}()
 
 	// Obtenir un buffer du pool
 	bufPtr := bufferPool.Get().(*[]byte)
@@ -269,46 +295,50 @@ func (e *Executor) copyFile(src, dst string) error {
 	buf := *bufPtr
 
 	// Copier avec le buffer
-	_, err = io.CopyBuffer(dstFile, srcFile, buf)
-	if err != nil {
-		// Supprimer la destination partielle en cas d'erreur
-		dstFile.Close()
-		os.Remove(dst)
+	if _, err = io.CopyBuffer(tempFile, srcFile, buf); err != nil {
 		return fmt.Errorf("copy failed: %w", err)
 	}
 
-	// Synchroniser sur le disque
-	if err = dstFile.Sync(); err != nil {
+	// Copier les métadonnées avant Sync pour inclure aussi ces changements sur le disque.
+	if err = tempFile.Chmod(srcInfo.Mode().Perm()); err != nil {
+		return fmt.Errorf("cannot preserve file permissions: %w", err)
+	}
+	if err = os.Chtimes(tempPath, srcInfo.ModTime(), srcInfo.ModTime()); err != nil {
+		return fmt.Errorf("cannot preserve file timestamps: %w", err)
+	}
+	if err = tempFile.Sync(); err != nil {
 		return fmt.Errorf("sync failed: %w", err)
 	}
+	if err = tempFile.Close(); err != nil {
+		return fmt.Errorf("cannot close temporary destination: %w", err)
+	}
+	tempClosed = true
 
-	// Copier les permissions
-	srcInfo, err := os.Stat(src)
-	if err == nil {
-		os.Chmod(dst, srcInfo.Mode())
+	if err = srcFile.Close(); err != nil {
+		return fmt.Errorf("cannot close source: %w", err)
 	}
 
-	// Copier les timestamps
-	if srcInfo != nil {
-		os.Chtimes(dst, srcInfo.ModTime(), srcInfo.ModTime())
+	// Le hash est vérifié sur le temporaire : une copie invalide n'atteint jamais le chemin final.
+	if expectedHash != "" && !e.verifyHash(tempPath, expectedHash) {
+		return fmt.Errorf("hash verification failed")
 	}
 
+	if err = os.Rename(tempPath, dst); err != nil {
+		return fmt.Errorf("cannot publish destination: %w", err)
+	}
+	published = true
 	return nil
 }
 
-// moveFile déplace un fichier (rename ou copy+delete).
-//
-// On essaie d'abord os.Rename qui est atomique et instantané.
-// Si ça échoue (différentes partitions), on fait copy+delete.
+// moveFile déplace un fichier en publiant d'abord une copie, puis en supprimant la source.
+// Cette séquence conserve l'original si la copie échoue, même si source et destination partagent un volume.
 func (e *Executor) moveFile(src, dst string) error {
-	// Essayer le rename direct (même partition)
-	err := os.Rename(src, dst)
-	if err == nil {
-		return nil
-	}
+	return e.moveFileWithHash(src, dst, "")
+}
 
-	// Rename a échoué, faire copy + delete
-	if err := e.copyFile(src, dst); err != nil {
+// moveFileWithHash conserve la source jusqu'à la publication d'une copie vérifiée.
+func (e *Executor) moveFileWithHash(src, dst, expectedHash string) error {
+	if err := e.copyFileAtomic(src, dst, expectedHash); err != nil {
 		return err
 	}
 
@@ -328,6 +358,11 @@ func (e *Executor) moveFile(src, dst string) error {
 
 // verifyHash vérifie que le hash du fichier correspond à celui attendu.
 func (e *Executor) verifyHash(path string, expectedHash string) bool {
+	expected, err := hex.DecodeString(expectedHash)
+	if err != nil || len(expected) != sha256.Size {
+		return false
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return false
@@ -344,13 +379,13 @@ func (e *Executor) verifyHash(path string, expectedHash string) bool {
 		return false
 	}
 
-	actualHash := hex.EncodeToString(h.Sum(nil))
+	return bytes.Equal(h.Sum(nil), expected)
+}
 
-	// Comparer (le hash attendu peut être un quick hash, donc préfixe uniquement)
-	if len(expectedHash) < len(actualHash) {
-		return actualHash[:len(expectedHash)] == expectedHash
-	}
-	return actualHash == expectedHash
+// isFullSHA256 vérifie le format hexadécimal et la longueur exacte d'un SHA-256.
+func isFullSHA256(hash string) bool {
+	decoded, err := hex.DecodeString(hash)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

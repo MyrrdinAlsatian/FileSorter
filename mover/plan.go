@@ -123,12 +123,8 @@ func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
 			Category:    extractCategory(result.TargetPath),
 		}
 
-		// Ajouter le hash si disponible (pour vérification)
-		if result.FullHash != "" {
-			op.Hash = result.FullHash
-		} else if result.QuickHash != "" {
-			op.Hash = result.QuickHash
-		}
+		// Seul le SHA-256 complet permet de vérifier l'intégrité d'une copie.
+		op.Hash = result.FullHash
 
 		plan.AddOperation(op)
 	}
@@ -256,6 +252,17 @@ func validateResultPaths(result types.Result, sourceRoot, destinationRoot string
 	}
 	if !insideResolvedDestination {
 		return "", fmt.Errorf("target path escapes the destination directory through a symbolic link")
+	}
+	resolvedSourceRoot, err := resolveExistingPath(sourceRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve source directory links: %w", err)
+	}
+	insideResolvedSource, err := pathWithinRoot(resolvedSourceRoot, resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("compare destination with source directory: %w", err)
+	}
+	if insideResolvedSource {
+		return "", fmt.Errorf("target path resolves inside the source directory")
 	}
 
 	return destinationPath, nil
