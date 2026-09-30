@@ -27,6 +27,7 @@ import (
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Mode définit le type d'opération à effectuer sur les fichiers.
+// Comme Mode est un type défini, Go le distingue d'une string ordinaire dans les API.
 type Mode string
 
 const (
@@ -49,20 +50,56 @@ const (
 	ModeSymlink Mode = "symlink"
 )
 
+// ParseMode convertit une valeur de CLI en mode connu et refuse les valeurs inconnues.
+// Valider à la frontière évite qu'une faute de frappe devienne silencieusement un mode par défaut.
+func ParseMode(value string) (Mode, error) {
+	mode := Mode(value)
+	switch mode {
+	case ModeCopy, ModeMove, ModeHardlink, ModeSymlink:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unknown mover mode %q", value)
+	}
+}
+
+// OverwriteMode décrit la stratégie appliquée lorsqu'une destination existe déjà.
+type OverwriteMode string
+
+const (
+	// ConflictSkip ignore l'opération si la destination existe déjà.
+	ConflictSkip OverwriteMode = "skip"
+	// ConflictOverwrite remplace la destination après la copie complète.
+	ConflictOverwrite OverwriteMode = "overwrite"
+	// ConflictRename choisit un autre nom lors de la génération du plan.
+	ConflictRename OverwriteMode = "rename"
+)
+
+// ParseOverwriteMode convertit une valeur de CLI en stratégie de conflit connue.
+// Cette fonction transforme une entrée libre en une valeur de domaine validée.
+func ParseOverwriteMode(value string) (OverwriteMode, error) {
+	mode := OverwriteMode(value)
+	switch mode {
+	case ConflictSkip, ConflictOverwrite, ConflictRename:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unknown overwrite mode %q", value)
+	}
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // OPTIONS DE DÉPLACEMENT
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Options contient les paramètres pour l'exécution du plan.
 type Options struct {
-	Mode          Mode   // Mode d'opération (copy, move, hardlink, symlink)
-	Source        string // Répertoire source autorisé pour les opérations du plan
-	Destination   string // Répertoire de destination
-	DryRun        bool   // Mode simulation (ne fait rien)
-	Verify        bool   // Vérifier le hash après copie
-	Workers       int    // Nombre de workers parallèles
-	OverwriteMode string // "skip", "overwrite", "rename"
-	Verbose       bool   // Affichage détaillé
+	Mode          Mode          // Mode d'opération (copy, move, hardlink, symlink)
+	Source        string        // Répertoire source autorisé pour les opérations du plan
+	Destination   string        // Répertoire de destination
+	DryRun        bool          // Mode simulation (ne fait rien)
+	Verify        bool          // Vérifier le hash après copie
+	Workers       int           // Nombre de workers parallèles
+	OverwriteMode OverwriteMode // Stratégie si la destination existe
+	Verbose       bool          // Affichage détaillé
 
 	// Filtres
 	SkipCorrupted bool     // Ignorer les fichiers corrompus (valid=false)
@@ -79,7 +116,7 @@ func DefaultOptions() Options {
 		DryRun:        false,
 		Verify:        false,
 		Workers:       4,
-		OverwriteMode: "skip",
+		OverwriteMode: ConflictSkip,
 		Verbose:       false,
 		SkipCorrupted: true,
 		SkipSmall:     0,

@@ -108,10 +108,10 @@ func GeneratePlanFromJSONLContext(ctx context.Context, jsonlPath string, opts Op
 			// Conflit détecté
 			plan.ConflictFiles++
 
-			if opts.OverwriteMode == "rename" {
+			if opts.OverwriteMode == ConflictRename {
 				// Renommer pour éviter le conflit
 				destPath = resolveConflict(destPath, destMap)
-			} else if opts.OverwriteMode == "skip" {
+			} else if opts.OverwriteMode == ConflictSkip {
 				// Ignorer ce fichier
 				if opts.Verbose {
 					fmt.Printf("⚠️  Conflit ignoré: %s -> %s (déjà utilisé par %s)\n",

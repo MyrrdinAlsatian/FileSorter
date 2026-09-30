@@ -445,15 +445,16 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
 	fmt.Println()
 
-	// Convertir le mode de chaîne vers le type Mode
-	mode := mover.ModeCopy
-	switch opts.MoveMode {
-	case "move":
-		mode = mover.ModeMove
-	case "hardlink":
-		mode = mover.ModeHardlink
-	case "symlink":
-		mode = mover.ModeSymlink
+	// Les flags sont des chaînes; les valider ici avant de construire les options métier typées.
+	mode, err := mover.ParseMode(opts.MoveMode)
+	if err != nil {
+		log.Printf("❌ Erreur de configuration du mover: %v", err)
+		return
+	}
+	overwriteMode, err := mover.ParseOverwriteMode(opts.MoveOverwrite)
+	if err != nil {
+		log.Printf("❌ Erreur de configuration du mover: %v", err)
+		return
 	}
 
 	// Configurer les options du mover
@@ -464,7 +465,7 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 		DryRun:        opts.DryRun,
 		Verify:        opts.MoveVerify,
 		Workers:       opts.Workers,
-		OverwriteMode: opts.MoveOverwrite,
+		OverwriteMode: overwriteMode,
 		Verbose:       opts.Verbose,
 		SkipCorrupted: opts.SkipCorrupted,
 	}
@@ -498,7 +499,7 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 		os.Stdin,
 		os.Stderr,
 		mode,
-		opts.MoveOverwrite,
+		overwriteMode,
 		opts.Yes,
 		plan.TotalFiles,
 		opts.MoveTo,
@@ -523,8 +524,8 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 
 // confirmMoverExecution demande une validation uniquement pour les actions destructrices.
 // Le lecteur et l'écrivain sont des paramètres pour tester l'interaction sans terminal réel.
-func confirmMoverExecution(reader io.Reader, writer io.Writer, mode mover.Mode, overwriteMode string, yes bool, operationCount int, destination string) (bool, error) {
-	destructive := mode == mover.ModeMove || overwriteMode == "overwrite"
+func confirmMoverExecution(reader io.Reader, writer io.Writer, mode mover.Mode, overwriteMode mover.OverwriteMode, yes bool, operationCount int, destination string) (bool, error) {
+	destructive := mode == mover.ModeMove || overwriteMode == mover.ConflictOverwrite
 	if yes || !destructive {
 		return true, nil
 	}
@@ -538,7 +539,7 @@ func confirmMoverExecution(reader io.Reader, writer io.Writer, mode mover.Mode, 
 			return false, err
 		}
 	}
-	if overwriteMode == "overwrite" {
+	if overwriteMode == mover.ConflictOverwrite {
 		if _, err := fmt.Fprint(writer, ", avec remplacement des fichiers existants"); err != nil {
 			return false, err
 		}

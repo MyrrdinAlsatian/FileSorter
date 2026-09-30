@@ -213,12 +213,12 @@ func (e *Executor) executeOperation(ctx context.Context, idx int) {
 	// Vérifier si la destination existe déjà
 	if _, statErr := os.Stat(op.Destination); statErr == nil {
 		switch e.options.OverwriteMode {
-		case "skip":
+		case ConflictSkip:
 			op.Status = StatusSkipped
 			op.Error = "destination exists"
 			atomic.AddInt64(&e.skipped, 1)
 			return
-		case "overwrite":
+		case ConflictOverwrite:
 			// Pour copy/move, garder l'ancien fichier jusqu'à la publication atomique du nouveau.
 			if e.options.Mode != ModeCopy && e.options.Mode != ModeMove {
 				if err = os.Remove(op.Destination); err != nil {
