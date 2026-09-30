@@ -142,6 +142,7 @@ type Operation struct {
 
 	// État de l'opération
 	Status    OperationStatus // pending, success, failed, skipped
+	Resumed   bool            // Succès vérifié à partir d'un journal précédent
 	Error     string          // Message d'erreur si échoué
 	StartTime time.Time       // Heure de début
 	EndTime   time.Time       // Heure de fin
@@ -222,6 +223,7 @@ type ExecutionResult struct {
 
 	// Compteurs
 	Succeeded   int   // Opérations réussies
+	Resumed     int   // Opérations déjà terminées et vérifiées depuis un journal
 	Failed      int   // Opérations échouées
 	Skipped     int   // Opérations ignorées
 	BytesCopied int64 // Octets copiés

@@ -59,6 +59,14 @@ func main() {
 	// ParseFlags() utilise le package "flag" de la bibliothèque standard
 	// pour lire les arguments de ligne de commande (ex: -s /chemin -v)
 	opts := utils.ParseFlags()
+	if opts.MoveResume && opts.MoveTo == "" {
+		log.Printf("❌ --move-resume nécessite --move-to")
+		return
+	}
+	if opts.MoveResume && opts.MoveJournal == "" {
+		log.Printf("❌ --move-resume nécessite --move-journal")
+		return
+	}
 	// NotifyContext transforme Ctrl+C en annulation propagée aux opérations longues.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -189,10 +197,10 @@ func main() {
 	// Construire les options de scan complètes
 	scanOpts := scanner.ScanOptions{
 		ClassifyOpts:  classifyOpts,
-		ComputeHash:   opts.ComputeHash || opts.HashReport, // Activer le hash si demandé
-		SkipChecker:   processedFiles,                      // Pour le mode resume (sera nil si pas de resume)
-		Validate:      opts.Validate,                       // Valider l'intégrité des fichiers
-		ValidateTypes: opts.ValidateTypes,                  // Types à valider
+		ComputeHash:   opts.ComputeHash || opts.HashReport || opts.MoveResume, // Le rapprochement de reprise exige un hash complet
+		SkipChecker:   processedFiles,                                         // Pour le mode resume (sera nil si pas de resume)
+		Validate:      opts.Validate,                                          // Valider l'intégrité des fichiers
+		ValidateTypes: opts.ValidateTypes,                                     // Types à valider
 	}
 
 	outcome, scanErr := app.ScanAndExport(ctx, app.ScanRequest{
@@ -457,6 +465,10 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 		log.Printf("❌ Erreur de configuration du mover: %v", err)
 		return
 	}
+	if opts.MoveResume && mode != mover.ModeCopy && mode != mover.ModeMove {
+		log.Printf("❌ --move-resume est disponible uniquement avec les modes copy et move")
+		return
+	}
 
 	// Configurer les options du mover
 	moverOpts := mover.Options{
@@ -478,6 +490,20 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 		log.Printf("❌ Erreur lors de la génération du plan: %v", err)
 		return
 	}
+	if opts.MoveResume {
+		entries, err := mover.ReadOperationJournal(opts.MoveJournal)
+		if err != nil {
+			log.Printf("❌ Erreur lors de la lecture du journal mover: %v", err)
+			return
+		}
+		resumeReport, err := mover.ResumeOperationsFromJournal(ctx, plan, entries)
+		if err != nil {
+			log.Printf("❌ Erreur lors de la préparation de la reprise: %v", err)
+			return
+		}
+		fmt.Printf("Reprise du journal: %d opération(s) vérifiée(s), %d succès non vérifiable(s) laissés en attente\n",
+			resumeReport.Resumed, resumeReport.Unverified)
+	}
 
 	// Afficher le résumé du plan
 	plan.PrintSummary()
@@ -495,6 +521,7 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 		fmt.Println("ℹ️  Aucun fichier à déplacer")
 		return
 	}
+	pendingOperations := len(plan.GetPendingOperations())
 
 	confirmed, err := confirmMoverExecution(
 		os.Stdin,
@@ -502,7 +529,7 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 		mode,
 		overwriteMode,
 		opts.Yes,
-		plan.TotalFiles,
+		pendingOperations,
 		opts.MoveTo,
 	)
 	if err != nil {
@@ -543,6 +570,9 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 // confirmMoverExecution demande une validation uniquement pour les actions destructrices.
 // Le lecteur et l'écrivain sont des paramètres pour tester l'interaction sans terminal réel.
 func confirmMoverExecution(reader io.Reader, writer io.Writer, mode mover.Mode, overwriteMode mover.OverwriteMode, yes bool, operationCount int, destination string) (bool, error) {
+	if operationCount == 0 {
+		return true, nil
+	}
 	destructive := mode == mover.ModeMove || overwriteMode == mover.ConflictOverwrite
 	if yes || !destructive {
 		return true, nil

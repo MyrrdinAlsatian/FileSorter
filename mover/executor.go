@@ -43,6 +43,7 @@ type Executor struct {
 
 	// Compteurs (thread-safe avec atomic)
 	succeeded   int64
+	resumed     int64
 	failed      int64
 	skipped     int64
 	bytesCopied int64
@@ -97,6 +98,10 @@ func (e *Executor) ExecuteContext(ctx context.Context) *ExecutionResult {
 		result.Duration = result.EndTime.Sub(result.StartTime)
 		return result
 	}
+	e.accountResumedOperations()
+	if len(e.plan.GetPendingOperations()) == 0 {
+		return e.finalizeExecutionResult(result)
+	}
 	if err := ctx.Err(); err != nil {
 		e.failPendingOperations(err)
 		return e.finalizeExecutionResult(result)
@@ -135,6 +140,11 @@ func (e *Executor) ExecuteContext(ctx context.Context) *ExecutionResult {
 		progressbar.OptionFullWidth(),
 		progressbar.OptionSetRenderBlankState(true),
 	)
+	for _, operation := range e.plan.Operations {
+		if operation.Resumed {
+			e.bar.Add(1)
+		}
+	}
 
 	// Déterminer le nombre de workers
 	workers := e.options.Workers
@@ -218,6 +228,7 @@ func (e *Executor) failPendingOperations(err error) {
 
 func (e *Executor) finalizeExecutionResult(result *ExecutionResult) *ExecutionResult {
 	result.Succeeded = int(atomic.LoadInt64(&e.succeeded))
+	result.Resumed = int(atomic.LoadInt64(&e.resumed))
 	result.Failed = int(atomic.LoadInt64(&e.failed))
 	result.Skipped = int(atomic.LoadInt64(&e.skipped))
 	result.BytesCopied = atomic.LoadInt64(&e.bytesCopied)
@@ -231,6 +242,15 @@ func (e *Executor) finalizeExecutionResult(result *ExecutionResult) *ExecutionRe
 	e.journalErrMu.Unlock()
 
 	return result
+}
+
+func (e *Executor) accountResumedOperations() {
+	for _, operation := range e.plan.Operations {
+		if operation.Resumed && operation.Status == StatusSuccess {
+			atomic.AddInt64(&e.succeeded, 1)
+			atomic.AddInt64(&e.resumed, 1)
+		}
+	}
 }
 
 // executeOperation exécute une opération individuelle.
@@ -571,6 +591,9 @@ func (r *ExecutionResult) PrintResults() {
 
 	fmt.Printf("  ⏱️  Durée         : %v\n", r.Duration.Round(time.Second))
 	fmt.Printf("  ✓  Réussis       : %d\n", r.Succeeded)
+	if r.Resumed > 0 {
+		fmt.Printf("  ↻  Repris         : %d\n", r.Resumed)
+	}
 	fmt.Printf("  ✗  Échoués       : %d\n", r.Failed)
 	fmt.Printf("  ⏭️  Ignorés       : %d\n", r.Skipped)
 	fmt.Printf("  💾 Données copiées: %s\n", formatBytes(r.BytesCopied))

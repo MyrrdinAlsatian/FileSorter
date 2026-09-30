@@ -62,6 +62,7 @@ type Options struct {
 	MoveVerify    bool   // Vérifier le hash après copie
 	MoveOverwrite string // Gestion des conflits : skip, overwrite, rename
 	MoveJournal   string // Journal JSONL écrit au fil de l'exécution (vide = désactivé)
+	MoveResume    bool   // Reprendre les succès vérifiés depuis MoveJournal
 	Yes           bool   // Confirmer automatiquement les actions destructrices
 	SkipCorrupted bool   // Ignorer les fichiers corrompus lors du déplacement
 
@@ -108,6 +109,7 @@ func DefaultOptions() Options {
 		MoveMode:      "copy", // Par défaut : copier (ne pas supprimer les originaux)
 		MoveVerify:    false,  // Par défaut : pas de vérification hash
 		MoveOverwrite: "skip", // Par défaut : ignorer les conflits
+		MoveResume:    false,  // Par défaut : ne pas reprendre un plan
 		Yes:           false,  // Par défaut : demander confirmation avant une action destructive
 		SkipCorrupted: true,   // Par défaut : ignorer les fichiers corrompus
 
@@ -229,6 +231,8 @@ func ParseFlags() Options {
 		"Gestion des conflits: skip, overwrite, rename (défaut: skip)")
 	flag.StringVar(&opts.MoveJournal, "move-journal", opts.MoveJournal,
 		"Écrire chaque résultat du mover dans un journal JSONL au fil de l'exécution")
+	flag.BoolVar(&opts.MoveResume, "move-resume", opts.MoveResume,
+		"Reprendre les succès vérifiés depuis --move-journal (copy/move; un hash doit exister dans le journal)")
 	flag.BoolVar(&opts.Yes, "yes", opts.Yes,
 		"Confirmer automatiquement les actions destructrices (déplacements ou remplacement)")
 	flag.BoolVar(&opts.SkipCorrupted, "skip-corrupted", opts.SkipCorrupted,
@@ -320,6 +324,7 @@ DÉPLACEMENT DE FICHIERS:
     --verify               Vérifier l'intégrité après copie
     --overwrite <MODE>     Conflits: skip, overwrite, rename (défaut: skip)
     --move-journal <PATH> Écrire chaque opération terminée dans un journal JSONL
+	--move-resume          Reprendre les succès vérifiés depuis le journal
     --yes                 Confirmer automatiquement les déplacements et remplacements
     --skip-corrupted       Ignorer les fichiers corrompus (défaut: true)
 

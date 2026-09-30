@@ -19,6 +19,7 @@ type OperationJournalEntry struct {
 	Source        string          `json:"source"`
 	Destination   string          `json:"destination"`
 	Size          int64           `json:"size"`
+	SHA256        string          `json:"sha256,omitempty"`
 	Status        OperationStatus `json:"status"`
 	Error         string          `json:"error,omitempty"`
 }
@@ -105,6 +106,7 @@ func newOperationJournalEntry(action Mode, operation Operation, fallbackTime tim
 		Source:        operation.Source,
 		Destination:   operation.Destination,
 		Size:          operation.Size,
+		SHA256:        operation.Hash,
 		Status:        operation.Status,
 		Error:         operation.Error,
 	}
@@ -164,6 +166,9 @@ func validateOperationJournalEntry(entry OperationJournalEntry) error {
 	}
 	if entry.Size < 0 {
 		return fmt.Errorf("negative operation size %d", entry.Size)
+	}
+	if entry.SHA256 != "" && !isFullSHA256(entry.SHA256) {
+		return fmt.Errorf("invalid SHA-256 hash")
 	}
 	switch entry.Status {
 	case StatusSuccess, StatusFailed, StatusSkipped, StatusConflict:
