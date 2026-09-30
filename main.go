@@ -28,6 +28,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -516,16 +517,26 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 	// Exécuter le plan
 	fmt.Printf("\n🚀 Démarrage du %s vers %s...\n\n", mode, opts.MoveTo)
 	executor := mover.NewExecutor(plan)
+	var journal *mover.OperationJournal
+	if opts.MoveJournal != "" {
+		journal, err = mover.NewOperationJournal(opts.MoveJournal)
+		if err != nil {
+			log.Printf("❌ Erreur lors de l'ouverture du journal mover: %v", err)
+			return
+		}
+		executor.SetOperationJournal(journal)
+	}
 	result := executor.ExecuteContext(ctx)
+	if journal != nil {
+		result.JournalError = errors.Join(result.JournalError, journal.Close())
+	}
 
 	// Afficher les résultats
 	result.PrintResults()
-	if opts.MoveJournal != "" {
-		if err := mover.AppendOperationJournal(opts.MoveJournal, result); err != nil {
-			log.Printf("⚠️  Erreur lors de l'écriture du journal mover: %v", err)
-		} else {
-			fmt.Printf("Journal des opérations ajouté à %s\n", opts.MoveJournal)
-		}
+	if result.JournalError != nil {
+		log.Printf("⚠️  Erreur lors de l'écriture du journal mover: %v", result.JournalError)
+	} else if journal != nil {
+		fmt.Printf("Journal des opérations écrit au fil de l'exécution dans %s\n", opts.MoveJournal)
 	}
 }
 

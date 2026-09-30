@@ -33,6 +33,10 @@ import (
 type Executor struct {
 	plan    *Plan
 	options Options
+	journal *OperationJournal
+
+	journalErr   error
+	journalErrMu sync.Mutex
 
 	// diskSpaceCheck permet de simuler le contrôle système dans les tests.
 	diskSpaceCheck func(*Plan) (bool, int64, error)
@@ -58,6 +62,11 @@ func NewExecutor(plan *Plan) *Executor {
 		options: plan.Options,
 		errors:  make([]OperationError, 0),
 	}
+}
+
+// SetOperationJournal active l'écriture des opérations terminées dans un journal partagé.
+func (e *Executor) SetOperationJournal(journal *OperationJournal) {
+	e.journal = journal
 }
 
 // Execute exécute le plan et retourne les résultats.
@@ -217,6 +226,9 @@ func (e *Executor) finalizeExecutionResult(result *ExecutionResult) *ExecutionRe
 	e.errMu.Lock()
 	result.Errors = append([]OperationError(nil), e.errors...)
 	e.errMu.Unlock()
+	e.journalErrMu.Lock()
+	result.JournalError = e.journalErr
+	e.journalErrMu.Unlock()
 
 	return result
 }
@@ -260,7 +272,9 @@ func (e *Executor) executeOperation(ctx context.Context, idx int) {
 		case ConflictSkip:
 			op.Status = StatusSkipped
 			op.Error = "destination exists"
+			op.EndTime = time.Now()
 			atomic.AddInt64(&e.skipped, 1)
+			e.appendOperationJournal(op)
 			return
 		case ConflictOverwrite:
 			// Pour copy/move, garder l'ancien fichier jusqu'à la publication atomique du nouveau.
@@ -298,6 +312,7 @@ func (e *Executor) executeOperation(ctx context.Context, idx int) {
 	op.EndTime = time.Now()
 	atomic.AddInt64(&e.succeeded, 1)
 	atomic.AddInt64(&e.bytesCopied, op.Size)
+	e.appendOperationJournal(op)
 }
 
 // recordError enregistre une erreur pour une opération.
@@ -315,6 +330,21 @@ func (e *Executor) recordError(idx int, err error) {
 		Error:     err,
 	})
 	e.errMu.Unlock()
+	e.appendOperationJournal(op)
+}
+
+func (e *Executor) appendOperationJournal(operation *Operation) {
+	if e.journal == nil {
+		return
+	}
+	e.journalErrMu.Lock()
+	defer e.journalErrMu.Unlock()
+	if e.journalErr != nil {
+		return
+	}
+	if err := e.journal.Append(newOperationJournalEntry(e.options.Mode, *operation, time.Time{})); err != nil {
+		e.journalErr = err
+	}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

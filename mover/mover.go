@@ -232,7 +232,8 @@ type ExecutionResult struct {
 	Duration  time.Duration
 
 	// Erreurs
-	Errors []OperationError
+	Errors       []OperationError
+	JournalError error
 }
 
 // OperationError associe une erreur à son opération.
