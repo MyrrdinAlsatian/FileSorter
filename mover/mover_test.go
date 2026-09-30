@@ -1,6 +1,7 @@
 package mover
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"FileRecoveryOrganizer/types"
 )
@@ -137,6 +139,76 @@ func TestExecuteRefusesCopyWhenDiskCheckFails(t *testing.T) {
 	}
 	if _, err := os.Stat(source); err != nil {
 		t.Fatalf("source should remain after preflight failure: %v", err)
+	}
+}
+
+func TestAppendOperationJournalWritesJSONLAndAppends(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "operations.jsonl")
+	timestamp := time.Date(2026, time.October, 1, 12, 30, 0, 0, time.UTC)
+	results := []*ExecutionResult{
+		{
+			Plan: &Plan{
+				Options: Options{Mode: ModeMove},
+				Operations: []Operation{{
+					Source:      "source-a.jpg",
+					Destination: "destination-a.jpg",
+					Size:        12,
+					Status:      StatusSuccess,
+					EndTime:     timestamp,
+				}},
+			},
+		},
+		{
+			Plan: &Plan{
+				Options: Options{Mode: ModeMove},
+				Operations: []Operation{{
+					Source:      "source-b.jpg",
+					Destination: "destination-b.jpg",
+					Size:        20,
+					Status:      StatusFailed,
+					Error:       "copy failed",
+					EndTime:     timestamp.Add(time.Minute),
+				}},
+			},
+		},
+	}
+
+	for _, result := range results {
+		if err := AppendOperationJournal(path, result); err != nil {
+			t.Fatalf("AppendOperationJournal error = %v", err)
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read journal: %v", err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(data), []byte{'\n'})
+	if len(lines) != 2 {
+		t.Fatalf("journal lines = %d, want 2: %s", len(lines), data)
+	}
+
+	var first, second struct {
+		SchemaVersion int             `json:"schema_version"`
+		Timestamp     time.Time       `json:"timestamp"`
+		Action        Mode            `json:"action"`
+		Source        string          `json:"source"`
+		Destination   string          `json:"destination"`
+		Size          int64           `json:"size"`
+		Status        OperationStatus `json:"status"`
+		Error         string          `json:"error"`
+	}
+	if err := json.Unmarshal(lines[0], &first); err != nil {
+		t.Fatalf("decode first journal line: %v", err)
+	}
+	if err := json.Unmarshal(lines[1], &second); err != nil {
+		t.Fatalf("decode second journal line: %v", err)
+	}
+	if first.SchemaVersion != 1 || first.Timestamp != timestamp || first.Action != ModeMove || first.Source != "source-a.jpg" || first.Destination != "destination-a.jpg" || first.Size != 12 || first.Status != StatusSuccess {
+		t.Fatalf("first journal entry = %#v", first)
+	}
+	if second.SchemaVersion != 1 || second.Source != "source-b.jpg" || second.Status != StatusFailed || second.Error != "copy failed" {
+		t.Fatalf("second journal entry = %#v", second)
 	}
 }
 
