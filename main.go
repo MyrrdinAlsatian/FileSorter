@@ -35,11 +35,11 @@ import (
 	"os/signal"
 	"strings"
 
+	"FileRecoveryOrganizer/app"
 	"FileRecoveryOrganizer/checkpoint"
 	"FileRecoveryOrganizer/classifier"
 	"FileRecoveryOrganizer/dedup"
 	"FileRecoveryOrganizer/detector"
-	"FileRecoveryOrganizer/exporter"
 	"FileRecoveryOrganizer/mover"
 	"FileRecoveryOrganizer/organizer"
 	"FileRecoveryOrganizer/report"
@@ -140,16 +140,6 @@ func main() {
 	// ÉTAPE 3 : INITIALISATION DES STRUCTURES DE DONNÉES
 	// ═══════════════════════════════════════════════════════════════════════
 
-	// Collector : contient un canal (channel) pour recevoir les résultats
-	// Le buffer de 2048 permet de stocker 2048 résultats en attente
-	// CONCEPT : Un canal bufferisé évite que l'émetteur bloque si le récepteur est lent
-	collector := scanner.NewCollector(2048)
-
-	// SafeStats : statistiques thread-safe (protégées par un mutex)
-	// CONCEPT : Quand plusieurs goroutines modifient les mêmes données,
-	// il faut les protéger avec un mutex pour éviter les "race conditions"
-	statsSafe := scanner.NewStats()
-
 	exportPath := opts.ExportPath
 	if opts.Verbose {
 		fmt.Println("📤 Export path:", exportPath)
@@ -177,47 +167,6 @@ func main() {
 	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
 	fmt.Printf("Start scanning...")
 
-	// ═══════════════════════════════════════════════════════════════════════
-	// ÉTAPE 5 : CONFIGURATION DE L'EXPORT JSONL
-	// ═══════════════════════════════════════════════════════════════════════
-
-	// JSONL = JSON Lines : un objet JSON par ligne, idéal pour le streaming
-	var jsonExporter *exporter.JSONExporter
-	if opts.Resume {
-		// Mode resume : ajouter au fichier existant
-		jsonExporter, err = exporter.NewJSONExporterAppend(exportPath)
-	} else {
-		// Mode normal : créer un nouveau fichier
-		jsonExporter, err = exporter.NewJSONExporter(exportPath)
-	}
-	if err != nil {
-		// log.Fatalf affiche le message ET termine le programme avec code d'erreur
-		log.Fatalf("Failed to create JSON exporter: %v", err)
-	}
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// ÉTAPE 6 : LANCEMENT DE LA GOROUTINE CONSOMMATRICE
-	// ═══════════════════════════════════════════════════════════════════════
-	//
-	// CONCEPT CRUCIAL : PATTERN PRODUCTEUR-CONSOMMATEUR
-	// ──────────────────────────────────────────────────
-	// On lance AVANT le scan une goroutine qui LIT le canal collector.Results.
-	// Pourquoi ? Parce que pendant le scan, les workers ÉCRIVENT dans ce canal.
-	//
-	// Si personne ne lit le canal et que le buffer est plein → DEADLOCK !
-	// (Tout le monde attend, personne n'avance)
-	//
-	// Visualisation :
-	//
-	//   [Worker 1] ──┐
-	//   [Worker 2] ──┼──▶ [Canal Results] ──▶ [Goroutine Export] ──▶ [Fichier JSONL]
-	//   [Worker 3] ──┤         (buffer)
-	//   [Worker 4] ──┘
-
-	var resultCount int               // Compteur de résultats exportés
-	var exportErr error               // Stocke la dernière erreur d'export
-	exportDone := make(chan struct{}) // Canal de signalisation (sans données)
-
 	// Détecteur de doublons (initialisé seulement si demandé)
 	var duplicateFinder *dedup.DuplicateFinder
 	if opts.ComputeHash || opts.HashReport {
@@ -233,36 +182,6 @@ func main() {
 	var allResults []types.Result
 	collectResults := opts.HTMLReport != ""
 
-	// `go func() { ... }()` lance une fonction anonyme dans une nouvelle goroutine
-	go func() {
-		// defer close(exportDone) : à la fin de cette goroutine, fermer le canal
-		// Cela signale au programme principal que l'export est terminé
-		defer close(exportDone)
-
-		// range sur un canal : itère jusqu'à ce que le canal soit fermé
-		for result := range collector.Results {
-			// Si le calcul de hash est activé, ajouter le fichier au détecteur
-			if duplicateFinder != nil {
-				duplicateFinder.AddFile(result.Path, result.Size)
-			}
-
-			// Collecter pour le rapport HTML si demandé
-			if collectResults {
-				allResults = append(allResults, result)
-			}
-
-			if err := jsonExporter.Write(result); err != nil {
-				log.Printf("Failed to write result for %s: %v", result.Path, err)
-				exportErr = err
-			}
-			resultCount++
-		}
-	}()
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// ÉTAPE 7 : SCAN PARALLÈLE DES FICHIERS
-	// ═══════════════════════════════════════════════════════════════════════
-
 	// Créer une barre de progression
 	bar := scanner.CreateProgessBar(stats.TotalFiles)
 
@@ -275,41 +194,33 @@ func main() {
 		ValidateTypes: opts.ValidateTypes,                  // Types à valider
 	}
 
-	// ScanDirectoryParallelWithScanOptions lance plusieurs workers (goroutines) pour traiter
-	// les fichiers en parallèle. Le callback `func() { bar.Add(1) }` est appelé
-	// après chaque fichier traité pour mettre à jour la barre de progression.
-	//
-	// CONCEPT : Les closures "capturent" les variables de leur environnement
-	// Ici, `bar` est capturé par la closure
-	err = scanner.ScanDirectoryParallelWithScanOptionsContext(ctx, sourceDir, collector, statsSafe, func() {
-		bar.Add(1)
-	}, opts.Workers, scanOpts)
-	scanErr := err
-
-	// ═══════════════════════════════════════════════════════════════════════
-	// ÉTAPE 8 : ATTENTE ET FINALISATION
-	// ═══════════════════════════════════════════════════════════════════════
-
-	// `<-exportDone` bloque jusqu'à ce que le canal exportDone soit fermé
-	// C'est notre façon d'attendre que la goroutine d'export ait terminé
-	// CONCEPT : Recevoir d'un canal fermé retourne immédiatement la valeur zéro
-	<-exportDone
-
-	// Fermer proprement l'exporter (flush le buffer, ferme le fichier)
-	if closeErr := jsonExporter.Close(); closeErr != nil {
-		log.Printf("⚠️  Failed to close JSON exporter: %v", closeErr)
-	}
+	outcome, scanErr := app.ScanAndExport(ctx, app.ScanRequest{
+		SourceDir:   sourceDir,
+		ExportPath:  exportPath,
+		Append:      opts.Resume,
+		Workers:     opts.Workers,
+		ScanOptions: scanOpts,
+		OnProgress:  func() { bar.Add(1) },
+		OnResult: func(result types.Result) {
+			if duplicateFinder != nil {
+				duplicateFinder.AddFile(result.Path, result.Size)
+			}
+			if collectResults {
+				allResults = append(allResults, result)
+			}
+		},
+	})
 	if scanErr != nil {
 		fmt.Println("\n❌ Error during scanning:", scanErr)
 		return
 	}
 
-	if exportErr != nil {
+	if outcome.ExportError != nil {
 		log.Printf("⚠️  Some errors occurred during export")
 	}
 
 	// Afficher le résumé final
-	printSummary(statsSafe, stats, resultCount, opts.Verbose)
+	printSummary(outcome.Stats, stats, outcome.ResultCount, opts.Verbose)
 
 	// ═══════════════════════════════════════════════════════════════════════
 	// ÉTAPE 9 : RAPPORT DE DOUBLONS (si demandé)
