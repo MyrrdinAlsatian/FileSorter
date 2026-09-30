@@ -210,6 +210,110 @@ func TestAppendOperationJournalWritesJSONLAndAppends(t *testing.T) {
 	if second.SchemaVersion != 1 || second.Source != "source-b.jpg" || second.Status != StatusFailed || second.Error != "copy failed" {
 		t.Fatalf("second journal entry = %#v", second)
 	}
+
+	entries, err := ReadOperationJournal(path)
+	if err != nil {
+		t.Fatalf("ReadOperationJournal error = %v", err)
+	}
+	if len(entries) != 2 || entries[0].Source != "source-a.jpg" || entries[1].Status != StatusFailed {
+		t.Fatalf("read journal entries = %#v", entries)
+	}
+}
+
+func TestReadOperationJournalRejectsMalformedLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "operations.jsonl")
+	valid, err := json.Marshal(OperationJournalEntry{
+		SchemaVersion: 1,
+		Timestamp:     time.Date(2026, time.October, 1, 12, 30, 0, 0, time.UTC),
+		Action:        ModeCopy,
+		Source:        "source.txt",
+		Destination:   "destination.txt",
+		Size:          1,
+		Status:        StatusSuccess,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := append(append(valid, '\n'), []byte("not-json\n")...)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadOperationJournal(path); err == nil {
+		t.Fatal("ReadOperationJournal error = nil, want malformed-line error")
+	} else if !bytes.Contains([]byte(err.Error()), []byte("line 2")) {
+		t.Fatalf("ReadOperationJournal error = %v, want line number 2", err)
+	}
+}
+
+func TestReadOperationJournalRejectsInvalidEntries(t *testing.T) {
+	validTimestamp := time.Date(2026, time.October, 1, 12, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name  string
+		entry OperationJournalEntry
+	}{
+		{
+			name: "unsupported schema",
+			entry: OperationJournalEntry{
+				SchemaVersion: 2,
+				Timestamp:     validTimestamp,
+				Action:        ModeCopy,
+				Status:        StatusSuccess,
+			},
+		},
+		{
+			name: "missing timestamp",
+			entry: OperationJournalEntry{
+				SchemaVersion: 1,
+				Action:        ModeCopy,
+				Status:        StatusSuccess,
+			},
+		},
+		{
+			name: "unknown action",
+			entry: OperationJournalEntry{
+				SchemaVersion: 1,
+				Timestamp:     validTimestamp,
+				Action:        Mode("unknown"),
+				Status:        StatusSuccess,
+			},
+		},
+		{
+			name: "negative size",
+			entry: OperationJournalEntry{
+				SchemaVersion: 1,
+				Timestamp:     validTimestamp,
+				Action:        ModeCopy,
+				Size:          -1,
+				Status:        StatusSuccess,
+			},
+		},
+		{
+			name: "non-terminal status",
+			entry: OperationJournalEntry{
+				SchemaVersion: 1,
+				Timestamp:     validTimestamp,
+				Action:        ModeCopy,
+				Status:        StatusPending,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			line, err := json.Marshal(test.entry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "operations.jsonl")
+			if err := os.WriteFile(path, append(line, '\n'), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReadOperationJournal(path); err == nil {
+				t.Fatal("ReadOperationJournal error = nil, want validation error")
+			}
+		})
+	}
 }
 
 func TestExecutorWritesOperationJournal(t *testing.T) {
