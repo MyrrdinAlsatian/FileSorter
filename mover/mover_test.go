@@ -20,6 +20,50 @@ func TestPlanAddAndPendingOperations(t *testing.T) {
 	}
 }
 
+func TestParseMoverModes(t *testing.T) {
+	// Les parseurs retournent des types distincts; ces adaptateurs permettent de partager une table de tests.
+	tests := []struct {
+		name    string
+		value   string
+		parse   func(string) (string, error)
+		want    string
+		wantErr bool
+	}{
+		{name: "copy mode", value: "copy", parse: func(value string) (string, error) { parsed, err := ParseMode(value); return string(parsed), err }, want: string(ModeCopy)},
+		{name: "move mode", value: "move", parse: func(value string) (string, error) { parsed, err := ParseMode(value); return string(parsed), err }, want: string(ModeMove)},
+		{name: "invalid operation mode", value: "unknown", parse: func(value string) (string, error) { parsed, err := ParseMode(value); return string(parsed), err }, wantErr: true},
+		{name: "skip conflicts", value: "skip", parse: func(value string) (string, error) {
+			parsed, err := ParseOverwriteMode(value)
+			return string(parsed), err
+		}, want: string(ConflictSkip)},
+		{name: "overwrite conflicts", value: "overwrite", parse: func(value string) (string, error) {
+			parsed, err := ParseOverwriteMode(value)
+			return string(parsed), err
+		}, want: string(ConflictOverwrite)},
+		{name: "rename conflicts", value: "rename", parse: func(value string) (string, error) {
+			parsed, err := ParseOverwriteMode(value)
+			return string(parsed), err
+		}, want: string(ConflictRename)},
+		{name: "invalid conflict mode", value: "unknown", parse: func(value string) (string, error) {
+			parsed, err := ParseOverwriteMode(value)
+			return string(parsed), err
+		}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		// t.Run nomme chaque cas et rend son échec identifiable séparément.
+		t.Run(test.name, func(t *testing.T) {
+			got, err := test.parse(test.value)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("parse error = %v, wantErr %t", err, test.wantErr)
+			}
+			if got != test.want {
+				t.Fatalf("parsed value = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestExecuteContextCancellationPreservesSource(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source.txt")
@@ -369,7 +413,7 @@ func TestCopyVerificationFailurePreservesExistingDestination(t *testing.T) {
 	options := DefaultOptions()
 	options.Verify = true
 	options.Workers = 1
-	options.OverwriteMode = "overwrite"
+	options.OverwriteMode = ConflictOverwrite
 	plan := NewPlan(options)
 	plan.AddOperation(Operation{
 		Source:      source,
@@ -418,7 +462,7 @@ func TestCopyOverwriteReplacesDestination(t *testing.T) {
 	options := DefaultOptions()
 	options.Verify = true
 	options.Workers = 1
-	options.OverwriteMode = "overwrite"
+	options.OverwriteMode = ConflictOverwrite
 	plan := NewPlan(options)
 	plan.AddOperation(Operation{
 		Source:      source,
