@@ -34,6 +34,9 @@ type Executor struct {
 	plan    *Plan
 	options Options
 
+	// diskSpaceCheck permet de simuler le contrôle système dans les tests.
+	diskSpaceCheck func(*Plan) (bool, int64, error)
+
 	// Compteurs (thread-safe avec atomic)
 	succeeded   int64
 	failed      int64
@@ -84,6 +87,29 @@ func (e *Executor) ExecuteContext(ctx context.Context) *ExecutionResult {
 		result.EndTime = time.Now()
 		result.Duration = result.EndTime.Sub(result.StartTime)
 		return result
+	}
+	if err := ctx.Err(); err != nil {
+		e.failPendingOperations(err)
+		return e.finalizeExecutionResult(result)
+	}
+
+	enoughSpace, available, err := e.checkPlanDiskSpace()
+	if err != nil {
+		e.failPendingOperations(fmt.Errorf("disk space preflight failed: %w", err))
+		return e.finalizeExecutionResult(result)
+	}
+	if !enoughSpace {
+		required, sizeErr := pendingBytes(e.plan)
+		if sizeErr != nil {
+			e.failPendingOperations(sizeErr)
+		} else {
+			e.failPendingOperations(fmt.Errorf("insufficient disk space: need %d bytes, have %d bytes available", required, available))
+		}
+		return e.finalizeExecutionResult(result)
+	}
+	if err := ctx.Err(); err != nil {
+		e.failPendingOperations(err)
+		return e.finalizeExecutionResult(result)
 	}
 
 	// Créer la progress bar
@@ -163,7 +189,25 @@ func (e *Executor) ExecuteContext(ctx context.Context) *ExecutionResult {
 	}
 	e.bar.Finish()
 
-	// Compiler les résultats
+	return e.finalizeExecutionResult(result)
+}
+
+func (e *Executor) checkPlanDiskSpace() (bool, int64, error) {
+	if e.diskSpaceCheck != nil {
+		return e.diskSpaceCheck(e.plan)
+	}
+	return CheckDiskSpace(e.plan)
+}
+
+func (e *Executor) failPendingOperations(err error) {
+	for i := range e.plan.Operations {
+		if e.plan.Operations[i].Status == StatusPending {
+			e.recordError(i, err)
+		}
+	}
+}
+
+func (e *Executor) finalizeExecutionResult(result *ExecutionResult) *ExecutionResult {
 	result.Succeeded = int(atomic.LoadInt64(&e.succeeded))
 	result.Failed = int(atomic.LoadInt64(&e.failed))
 	result.Skipped = int(atomic.LoadInt64(&e.skipped))
@@ -473,21 +517,6 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 func isFullSHA256(hash string) bool {
 	decoded, err := hex.DecodeString(hash)
 	return err == nil && len(decoded) == sha256.Size
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// VÉRIFICATION D'ESPACE DISQUE
-// ═══════════════════════════════════════════════════════════════════════════
-
-// CheckDiskSpace vérifie qu'il y a assez d'espace disque pour le plan.
-func CheckDiskSpace(plan *Plan) (bool, int64, error) {
-	// Note: Cette fonction est un placeholder.
-	// L'implémentation réelle dépend du système d'exploitation.
-	// Sur Windows, on utiliserait syscall.GetDiskFreeSpaceEx
-	// Sur Unix, on utiliserait syscall.Statfs
-
-	// Pour l'instant, on retourne toujours OK
-	return false, 0, fmt.Errorf("disk space check is not implemented")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
