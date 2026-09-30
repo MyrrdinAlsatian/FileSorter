@@ -212,6 +212,123 @@ func TestAppendOperationJournalWritesJSONLAndAppends(t *testing.T) {
 	}
 }
 
+func TestExecutorWritesOperationJournal(t *testing.T) {
+	root := t.TempDir()
+	destinationRoot := filepath.Join(root, "destination")
+	successSource := filepath.Join(root, "success.txt")
+	skippedSource := filepath.Join(root, "skipped.txt")
+	skippedDestination := filepath.Join(destinationRoot, "skipped.txt")
+	if err := os.WriteFile(successSource, []byte("copy"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skippedSource, []byte("skip"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(destinationRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skippedDestination, []byte("keep existing"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := NewPlan(Options{
+		Mode:          ModeCopy,
+		Destination:   destinationRoot,
+		Workers:       3,
+		OverwriteMode: ConflictSkip,
+	})
+	plan.AddOperation(Operation{Source: successSource, Destination: filepath.Join(destinationRoot, "success.txt"), Size: 4})
+	plan.AddOperation(Operation{Source: filepath.Join(root, "missing.txt"), Destination: filepath.Join(destinationRoot, "missing.txt"), Size: 1})
+	plan.AddOperation(Operation{Source: skippedSource, Destination: skippedDestination, Size: 4})
+
+	journal, err := NewOperationJournal(filepath.Join(root, "operations.jsonl"))
+	if err != nil {
+		t.Fatalf("NewOperationJournal error = %v", err)
+	}
+	executor := NewExecutor(plan)
+	executor.SetOperationJournal(journal)
+	executor.diskSpaceCheck = func(*Plan) (bool, int64, error) {
+		return true, 1 << 30, nil
+	}
+	result := executor.Execute()
+	if err := journal.Close(); err != nil {
+		t.Fatalf("close operation journal: %v", err)
+	}
+
+	if result.Succeeded != 1 || result.Failed != 1 || result.Skipped != 1 {
+		t.Fatalf("execution counts = (%d succeeded, %d failed, %d skipped)", result.Succeeded, result.Failed, result.Skipped)
+	}
+	if result.JournalError != nil {
+		t.Fatalf("journal error = %v", result.JournalError)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "operations.jsonl"))
+	if err != nil {
+		t.Fatalf("read operation journal: %v", err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(data), []byte{'\n'})
+	if len(lines) != 3 {
+		t.Fatalf("journal lines = %d, want 3: %s", len(lines), data)
+	}
+	statuses := make(map[string]OperationStatus, len(lines))
+	for _, line := range lines {
+		var entry OperationJournalEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatalf("decode operation journal entry: %v", err)
+		}
+		statuses[entry.Source] = entry.Status
+	}
+	if statuses[successSource] != StatusSuccess {
+		t.Errorf("success source status = %q, want %q", statuses[successSource], StatusSuccess)
+	}
+	if statuses[filepath.Join(root, "missing.txt")] != StatusFailed {
+		t.Errorf("missing source status = %q, want %q", statuses[filepath.Join(root, "missing.txt")], StatusFailed)
+	}
+	if statuses[skippedSource] != StatusSkipped {
+		t.Errorf("skipped source status = %q, want %q", statuses[skippedSource], StatusSkipped)
+	}
+}
+
+func TestExecutorReportsJournalWriteErrorSeparately(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination", "source.txt")
+	if err := os.WriteFile(source, []byte("preserve operation status"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	plan := NewPlan(Options{
+		Mode:          ModeCopy,
+		Destination:   filepath.Dir(destination),
+		Workers:       1,
+		OverwriteMode: ConflictSkip,
+	})
+	plan.AddOperation(Operation{Source: source, Destination: destination, Size: int64(len("preserve operation status"))})
+
+	journal, err := NewOperationJournal(filepath.Join(root, "operations.jsonl"))
+	if err != nil {
+		t.Fatalf("NewOperationJournal error = %v", err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatalf("close operation journal: %v", err)
+	}
+	executor := NewExecutor(plan)
+	executor.SetOperationJournal(journal)
+	executor.diskSpaceCheck = func(*Plan) (bool, int64, error) {
+		return true, 1 << 30, nil
+	}
+	result := executor.Execute()
+
+	if result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("file operation counts = (%d succeeded, %d failed), want (1, 0)", result.Succeeded, result.Failed)
+	}
+	if result.JournalError == nil {
+		t.Fatal("JournalError = nil, want write failure")
+	}
+	if _, err := os.Stat(destination); err != nil {
+		t.Fatalf("successful destination missing: %v", err)
+	}
+}
+
 func TestParseMoverModes(t *testing.T) {
 	// Les parseurs retournent des types distincts; ces adaptateurs permettent de partager une table de tests.
 	tests := []struct {
