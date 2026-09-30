@@ -1,6 +1,7 @@
 package dedup
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -22,6 +23,31 @@ func TestComputeFullHash(t *testing.T) {
 	hash := sha256.Sum256(content)
 	if got != hex.EncodeToString(hash[:]) {
 		t.Fatalf("ComputeFullHash() = %q", got)
+	}
+}
+
+func TestComputeFullHashContextReturnsCancellation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data.bin")
+	if err := os.WriteFile(path, []byte("hash me"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := ComputeFullHashContext(ctx, path); err != context.Canceled {
+		t.Fatalf("ComputeFullHashContext error = %v, want context.Canceled", err)
+	}
+}
+
+func TestFindDuplicatesContextReturnsCancellation(t *testing.T) {
+	finder := NewDuplicateFinderWithOptions(FinderOptions{MinSize: 0, Workers: 1})
+	finder.AddFile("first.bin", 1024)
+	finder.AddFile("second.bin", 1024)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := finder.FindDuplicatesContext(ctx); err != context.Canceled {
+		t.Fatalf("FindDuplicatesContext error = %v, want context.Canceled", err)
 	}
 }
 

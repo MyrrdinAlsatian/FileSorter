@@ -1,6 +1,7 @@
 package mover
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,33 @@ func TestPlanAddAndPendingOperations(t *testing.T) {
 	p.AddOperation(Operation{Source: "a", Destination: "b", Size: 12})
 	if p.TotalFiles != 1 || p.TotalSize != 12 || len(p.GetPendingOperations()) != 1 {
 		t.Fatalf("plan = %#v", p)
+	}
+}
+
+func TestExecuteContextCancellationPreservesSource(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination", "source.txt")
+	if err := os.WriteFile(source, []byte("keep the original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	options := DefaultOptions()
+	options.Mode = ModeMove
+	options.Workers = 1
+	plan := NewPlan(options)
+	plan.AddOperation(Operation{Source: source, Destination: destination, Size: int64(len("keep the original"))})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := NewExecutor(plan).ExecuteContext(ctx)
+	if result.Failed != 1 {
+		t.Fatalf("failed operations = %d, want 1", result.Failed)
+	}
+	if _, err := os.Stat(source); err != nil {
+		t.Fatalf("source should remain after cancellation: %v", err)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("destination should not exist after cancellation, stat error = %v", err)
 	}
 }
 

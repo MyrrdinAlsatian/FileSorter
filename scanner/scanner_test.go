@@ -6,9 +6,81 @@
 package scanner
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
+
+	"FileRecoveryOrganizer/types"
 )
+
+func TestCountFileContextReturnsCancellation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := CountFileContext(ctx, dir, &types.Stats{}); err != context.Canceled {
+		t.Fatalf("CountFileContext error = %v, want context.Canceled", err)
+	}
+}
+
+func TestScanDirectoryContextClosesResultsOnCancellation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	collector := NewCollector(1)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := ScanDirectoryParallelWithScanOptionsContext(ctx, dir, collector, NewStats(), nil, 1, DefaultScanOptions())
+	if err != context.Canceled {
+		t.Fatalf("scan error = %v, want context.Canceled", err)
+	}
+	if _, open := <-collector.Results; open {
+		t.Fatal("results channel should be closed after cancellation")
+	}
+}
+
+func TestScanDirectoryContextStopsDuringScan(t *testing.T) {
+	dir := t.TempDir()
+	// Plus de fichiers que le buffer du producteur force le parcours à attendre les workers.
+	for i := 0; i < 256; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("file-%03d.txt", i))
+		if err := os.WriteFile(path, []byte("data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	collector := NewCollector(512)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	processed := false
+
+	err := ScanDirectoryParallelWithScanOptionsContext(ctx, dir, collector, NewStats(), func() {
+		if !processed {
+			processed = true
+			cancel()
+		}
+	}, 1, DefaultScanOptions())
+	if err != context.Canceled {
+		t.Fatalf("scan error = %v, want context.Canceled", err)
+	}
+	if !processed {
+		t.Fatal("expected at least one file to be processed before cancellation")
+	}
+	resultCount := 0
+	for range collector.Results {
+		resultCount++
+	}
+	if resultCount == 0 {
+		t.Fatal("expected the first processed result to be delivered before cancellation")
+	}
+}
 
 // TestSafeStats_AddFile teste que AddFile fonctionne correctement
 // avec des accès CONCURRENTS (plusieurs goroutines en même temps).
