@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +18,125 @@ func TestPlanAddAndPendingOperations(t *testing.T) {
 	p.AddOperation(Operation{Source: "a", Destination: "b", Size: 12})
 	if p.TotalFiles != 1 || p.TotalSize != 12 || len(p.GetPendingOperations()) != 1 {
 		t.Fatalf("plan = %#v", p)
+	}
+}
+
+func TestCheckDiskSpaceReturnsAvailableCapacity(t *testing.T) {
+	plan := NewPlan(Options{
+		Mode:        ModeCopy,
+		Destination: t.TempDir(),
+	})
+	plan.AddOperation(Operation{Source: "source", Destination: "destination", Size: 1})
+
+	_, available, err := CheckDiskSpace(plan)
+	if err != nil {
+		t.Fatalf("CheckDiskSpace error = %v", err)
+	}
+	if available < 0 {
+		t.Fatalf("available bytes = %d, want a nonnegative value", available)
+	}
+}
+
+func TestCheckDiskSpaceReportsInsufficientCapacity(t *testing.T) {
+	root := t.TempDir()
+	plan := NewPlan(Options{
+		Mode:        ModeCopy,
+		Destination: filepath.Join(root, "not-created-yet"),
+	})
+	plan.AddOperation(Operation{Source: "source", Destination: "destination", Size: 101})
+
+	enough, available, err := checkDiskSpace(plan, func(path string) (uint64, error) {
+		if path != root {
+			t.Fatalf("volume path = %q, want nearest existing directory %q", path, root)
+		}
+		return 100, nil
+	})
+	if err != nil {
+		t.Fatalf("checkDiskSpace error = %v", err)
+	}
+	if enough || available != 100 {
+		t.Fatalf("checkDiskSpace = (%t, %d), want (false, 100)", enough, available)
+	}
+}
+
+func TestCheckDiskSpacePropagatesLookupErrors(t *testing.T) {
+	plan := NewPlan(Options{Mode: ModeCopy, Destination: t.TempDir()})
+	plan.AddOperation(Operation{Source: "source", Size: 1})
+	wantErr := errors.New("volume unavailable")
+
+	_, _, err := checkDiskSpace(plan, func(string) (uint64, error) {
+		return 0, wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("checkDiskSpace error = %v, want wrapped %v", err, wantErr)
+	}
+}
+
+func TestCheckDiskSpaceSkipsLinkModes(t *testing.T) {
+	for _, mode := range []Mode{ModeHardlink, ModeSymlink} {
+		t.Run(string(mode), func(t *testing.T) {
+			plan := NewPlan(Options{Mode: mode})
+			plan.AddOperation(Operation{Source: "source", Size: 4096})
+			enough, available, err := checkDiskSpace(plan, func(string) (uint64, error) {
+				t.Fatal("link operation should not query free space")
+				return 0, nil
+			})
+			if err != nil || !enough || available != 0 {
+				t.Fatalf("checkDiskSpace = (%t, %d, %v), want (true, 0, nil)", enough, available, err)
+			}
+		})
+	}
+}
+
+func TestExecuteRefusesCopyWhenDiskSpaceIsInsufficient(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination", "source.txt")
+	if err := os.WriteFile(source, []byte("keep the source"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	plan := NewPlan(Options{Mode: ModeCopy, Destination: filepath.Dir(destination), Workers: 1})
+	plan.AddOperation(Operation{Source: source, Destination: destination, Size: int64(len("keep the source"))})
+	executor := NewExecutor(plan)
+	executor.diskSpaceCheck = func(*Plan) (bool, int64, error) {
+		return false, 0, nil
+	}
+
+	result := executor.Execute()
+	if result.Failed != 1 {
+		t.Fatalf("failed operations = %d, want 1", result.Failed)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("destination should not be created when space is insufficient: %v", err)
+	}
+	if _, err := os.Stat(source); err != nil {
+		t.Fatalf("source should remain after preflight refusal: %v", err)
+	}
+}
+
+func TestExecuteRefusesCopyWhenDiskCheckFails(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.txt")
+	destination := filepath.Join(root, "destination", "source.txt")
+	if err := os.WriteFile(source, []byte("keep the source"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	plan := NewPlan(Options{Mode: ModeCopy, Destination: filepath.Dir(destination), Workers: 1})
+	plan.AddOperation(Operation{Source: source, Destination: destination, Size: int64(len("keep the source"))})
+	executor := NewExecutor(plan)
+	executor.diskSpaceCheck = func(*Plan) (bool, int64, error) {
+		return false, 0, errors.New("volume unavailable")
+	}
+
+	result := executor.Execute()
+	if result.Failed != 1 {
+		t.Fatalf("failed operations = %d, want 1", result.Failed)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("destination should not be created when the disk check fails: %v", err)
+	}
+	if _, err := os.Stat(source); err != nil {
+		t.Fatalf("source should remain after preflight failure: %v", err)
 	}
 }
 
