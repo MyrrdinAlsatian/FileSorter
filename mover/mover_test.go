@@ -3,9 +3,12 @@ package mover
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"FileRecoveryOrganizer/types"
 )
 
 func TestPlanAddAndPendingOperations(t *testing.T) {
@@ -35,6 +38,72 @@ func TestCopyFileAndVerifyHash(t *testing.T) {
 	hash := sha256.Sum256(data)
 	if !executor.verifyHash(dst, hex.EncodeToString(hash[:])) {
 		t.Fatal("verifyHash rejected a copied file")
+	}
+}
+
+func TestGeneratePlanAndExecuteCopy(t *testing.T) {
+	// TempDir crée un dossier isolé pour ce test, que Go supprime automatiquement à la fin.
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.txt")
+	// []byte représente les octets exacts du fichier, que la copie doit préserver.
+	data := []byte("copy me through the mover")
+	if err := os.WriteFile(source, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// On calcule le hash attendu à partir des octets source; l'exécuteur le comparera après la copie.
+	hash := sha256.Sum256(data)
+	result := types.Result{
+		Path:       source,
+		Size:       int64(len(data)),
+		Type:       "txt",
+		TargetPath: "documents/source.txt",
+		FullHash:   hex.EncodeToString(hash[:]),
+	}
+	// json.Marshal sérialise la struct Go en JSON; le format JSONL place un objet JSON sur chaque ligne.
+	jsonl, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "scan.jsonl")
+	// Le saut de ligne termine l'enregistrement pour que le scanner le lise comme une ligne JSONL.
+	if err := os.WriteFile(jsonlPath, append(jsonl, '\n'), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// On part des valeurs par défaut et on ne modifie que les options utiles à ce test.
+	options := DefaultOptions()
+	options.Destination = filepath.Join(dir, "organized")
+	options.Verify = true
+	// Un seul worker rend ce petit test déterministe tout en passant par le mécanisme de workers.
+	options.Workers = 1
+	// La génération lit le JSONL et transforme TargetPath, relatif, en opération avec un chemin concret.
+	plan, err := GeneratePlanFromJSONL(jsonlPath, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Operations) != 1 {
+		t.Fatalf("planned %d operations, want 1", len(plan.Operations))
+	}
+
+	// Execute renvoie des compteurs et des erreurs structurés; le test peut vérifier le résultat directement.
+	execution := NewExecutor(plan).Execute()
+	if execution.Succeeded != 1 || execution.Failed != 0 {
+		t.Fatalf("execution result = %d succeeded, %d failed; errors: %v", execution.Succeeded, execution.Failed, execution.Errors)
+	}
+
+	destination := filepath.Join(options.Destination, "documents", "source.txt")
+	// ReadFile renvoie les octets copiés; on les compare au contenu initial pour vérifier la copie.
+	copied, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("read destination: %v", err)
+	}
+	if string(copied) != string(data) {
+		t.Fatalf("destination contents = %q, want %q", copied, data)
+	}
+	// Stat vérifie que le mode copie a créé la destination sans supprimer le fichier source.
+	if _, err := os.Stat(source); err != nil {
+		t.Fatalf("source should remain after copy: %v", err)
 	}
 }
 
