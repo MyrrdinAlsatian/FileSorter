@@ -61,6 +61,7 @@ type Options struct {
 	MoveMode      string // Mode : copy, move, hardlink, symlink
 	MoveVerify    bool   // Vérifier le hash après copie
 	MoveOverwrite string // Gestion des conflits : skip, overwrite, rename
+	MoveJournal   string // Journal JSONL des opérations terminées (vide = désactivé)
 	Yes           bool   // Confirmer automatiquement les actions destructrices
 	SkipCorrupted bool   // Ignorer les fichiers corrompus lors du déplacement
 
@@ -226,6 +227,8 @@ func ParseFlags() Options {
 		"Vérifier l'intégrité après copie (compare les hash)")
 	flag.StringVar(&opts.MoveOverwrite, "overwrite", opts.MoveOverwrite,
 		"Gestion des conflits: skip, overwrite, rename (défaut: skip)")
+	flag.StringVar(&opts.MoveJournal, "move-journal", opts.MoveJournal,
+		"Ajouter les résultats du mover à un journal JSONL")
 	flag.BoolVar(&opts.Yes, "yes", opts.Yes,
 		"Confirmer automatiquement les actions destructrices (déplacements ou remplacement)")
 	flag.BoolVar(&opts.SkipCorrupted, "skip-corrupted", opts.SkipCorrupted,
@@ -316,7 +319,8 @@ DÉPLACEMENT DE FICHIERS:
     --move-mode <MODE>     Mode: copy, move, hardlink, symlink (défaut: copy)
     --verify               Vérifier l'intégrité après copie
     --overwrite <MODE>     Conflits: skip, overwrite, rename (défaut: skip)
-	--yes                  Confirmer automatiquement les déplacements et remplacements
+    --move-journal <PATH> Ajouter les résultats terminés à un journal JSONL
+    --yes                 Confirmer automatiquement les déplacements et remplacements
     --skip-corrupted       Ignorer les fichiers corrompus (défaut: true)
 
 RENOMMAGE:

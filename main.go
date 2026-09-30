@@ -520,6 +520,13 @@ func executeMover(ctx context.Context, opts utils.Options, jsonlPath string, sou
 
 	// Afficher les résultats
 	result.PrintResults()
+	if opts.MoveJournal != "" {
+		if err := mover.AppendOperationJournal(opts.MoveJournal, result); err != nil {
+			log.Printf("⚠️  Erreur lors de l'écriture du journal mover: %v", err)
+		} else {
+			fmt.Printf("Journal des opérations ajouté à %s\n", opts.MoveJournal)
+		}
+	}
 }
 
 // confirmMoverExecution demande une validation uniquement pour les actions destructrices.
