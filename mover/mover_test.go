@@ -44,7 +44,11 @@ func TestCopyFileAndVerifyHash(t *testing.T) {
 func TestGeneratePlanAndExecuteCopy(t *testing.T) {
 	// TempDir crée un dossier isolé pour ce test, que Go supprime automatiquement à la fin.
 	dir := t.TempDir()
-	source := filepath.Join(dir, "source.txt")
+	sourceRoot := filepath.Join(dir, "input")
+	if err := os.Mkdir(sourceRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(sourceRoot, "source.txt")
 	// []byte représente les octets exacts du fichier, que la copie doit préserver.
 	data := []byte("copy me through the mover")
 	if err := os.WriteFile(source, data, 0644); err != nil {
@@ -73,6 +77,7 @@ func TestGeneratePlanAndExecuteCopy(t *testing.T) {
 
 	// On part des valeurs par défaut et on ne modifie que les options utiles à ce test.
 	options := DefaultOptions()
+	options.Source = sourceRoot
 	options.Destination = filepath.Join(dir, "organized")
 	options.Verify = true
 	// Un seul worker rend ce petit test déterministe tout en passant par le mécanisme de workers.
@@ -104,6 +109,153 @@ func TestGeneratePlanAndExecuteCopy(t *testing.T) {
 	// Stat vérifie que le mode copie a créé la destination sans supprimer le fichier source.
 	if _, err := os.Stat(source); err != nil {
 		t.Fatalf("source should remain after copy: %v", err)
+	}
+}
+
+func TestGeneratePlanRejectsDestinationPathEscape(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "input")
+	if err := os.Mkdir(sourceRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(sourceRoot, "source.txt")
+	if err := os.WriteFile(source, []byte("source"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		targetPath string
+	}{
+		{name: "parent traversal", targetPath: filepath.Join("..", "outside.txt")},
+		{name: "absolute path", targetPath: filepath.Join(dir, "outside.txt")},
+	}
+
+	// Chaque sous-test fournit un chemin malveillant différent au même point d'entrée.
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := types.Result{
+				Path:       source,
+				Size:       int64(len("source")),
+				Type:       "txt",
+				TargetPath: test.targetPath,
+			}
+			jsonl, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			jsonlPath := filepath.Join(dir, test.name+".jsonl")
+			if err := os.WriteFile(jsonlPath, append(jsonl, '\n'), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			options := DefaultOptions()
+			options.Source = sourceRoot
+			options.Destination = filepath.Join(dir, "organized")
+			if _, err := GeneratePlanFromJSONL(jsonlPath, options); err == nil {
+				t.Fatalf("TargetPath %q was accepted; want a path validation error", test.targetPath)
+			}
+		})
+	}
+}
+
+func TestGeneratePlanRejectsDestinationInsideSource(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "input")
+	if err := os.Mkdir(sourceRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "empty.jsonl")
+	if err := os.WriteFile(jsonlPath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		destination string
+	}{
+		{name: "same directory", destination: sourceRoot},
+		{name: "nested directory", destination: filepath.Join(sourceRoot, "organized")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			options := DefaultOptions()
+			options.Source = sourceRoot
+			options.Destination = test.destination
+			if _, err := GeneratePlanFromJSONL(jsonlPath, options); err == nil {
+				t.Fatalf("destination %q was accepted; want a path validation error", test.destination)
+			}
+		})
+	}
+}
+
+func TestGeneratePlanRejectsSourceOutsideSourceRoot(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "input")
+	if err := os.Mkdir(sourceRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sourceOutside := filepath.Join(dir, "outside.txt")
+	if err := os.WriteFile(sourceOutside, []byte("outside"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := types.Result{Path: sourceOutside, Type: "txt", TargetPath: "documents/outside.txt"}
+	jsonl, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "scan.jsonl")
+	if err := os.WriteFile(jsonlPath, append(jsonl, '\n'), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	options := DefaultOptions()
+	options.Source = sourceRoot
+	options.Destination = filepath.Join(dir, "organized")
+	if _, err := GeneratePlanFromJSONL(jsonlPath, options); err == nil {
+		t.Fatal("source outside the selected root was accepted")
+	}
+}
+
+func TestGeneratePlanRejectsDestinationSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	sourceRoot := filepath.Join(dir, "input")
+	destinationRoot := filepath.Join(dir, "organized")
+	outside := filepath.Join(dir, "outside")
+	for _, path := range []string{sourceRoot, destinationRoot, outside} {
+		if err := os.Mkdir(path, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source := filepath.Join(sourceRoot, "source.txt")
+	if err := os.WriteFile(source, []byte("source"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sur Windows, créer un symlink peut demander un droit système; dans ce cas ce test est ignoré.
+	link := filepath.Join(destinationRoot, "redirect")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("impossible de créer le symlink de test: %v", err)
+	}
+
+	result := types.Result{Path: source, Type: "txt", TargetPath: filepath.Join("redirect", "copied.txt")}
+	jsonl, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "scan.jsonl")
+	if err := os.WriteFile(jsonlPath, append(jsonl, '\n'), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	options := DefaultOptions()
+	options.Source = sourceRoot
+	options.Destination = destinationRoot
+	if _, err := GeneratePlanFromJSONL(jsonlPath, options); err == nil {
+		t.Fatal("destination path escaping through a symlink was accepted")
 	}
 }
 

@@ -56,6 +56,7 @@ const (
 // Options contient les paramètres pour l'exécution du plan.
 type Options struct {
 	Mode          Mode   // Mode d'opération (copy, move, hardlink, symlink)
+	Source        string // Répertoire source autorisé pour les opérations du plan
 	Destination   string // Répertoire de destination
 	DryRun        bool   // Mode simulation (ne fait rien)
 	Verify        bool   // Vérifier le hash après copie

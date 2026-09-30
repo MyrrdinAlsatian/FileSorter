@@ -340,7 +340,7 @@ func main() {
 	// ═══════════════════════════════════════════════════════════════════════
 
 	if opts.MoveTo != "" {
-		executeMover(opts, exportPath)
+		executeMover(opts, exportPath, sourceDir)
 	}
 }
 
@@ -512,7 +512,7 @@ func exportDuplicateReport(report *dedup.DuplicateReport, path string) error {
 // 2. Affiche un aperçu du plan
 // 3. Exécute les opérations de copie/déplacement
 // 4. Affiche les résultats
-func executeMover(opts utils.Options, jsonlPath string) {
+func executeMover(opts utils.Options, jsonlPath string, sourceDir string) {
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
 	fmt.Println("                    📦 DÉPLACEMENT DES FICHIERS")
@@ -533,6 +533,7 @@ func executeMover(opts utils.Options, jsonlPath string) {
 	// Configurer les options du mover
 	moverOpts := mover.Options{
 		Mode:          mode,
+		Source:        sourceDir,
 		Destination:   opts.MoveTo,
 		DryRun:        opts.DryRun,
 		Verify:        opts.MoveVerify,

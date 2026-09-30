@@ -33,6 +33,12 @@ import (
 // 4. Détection des conflits
 // 5. Ajout au plan
 func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
+	sourceRoot, destinationRoot, err := validatePlanRoots(opts)
+	if err != nil {
+		return nil, err
+	}
+	opts.Source = sourceRoot
+	opts.Destination = destinationRoot
 	plan := NewPlan(opts)
 
 	// Ouvrir le fichier JSONL
@@ -79,8 +85,11 @@ func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
 			continue
 		}
 
-		// Générer le chemin de destination
-		destPath := generateDestinationPath(result, opts.Destination)
+		// Vérifier les chemins issus du JSONL avant de les ajouter au plan.
+		destPath, err := validateResultPaths(result, sourceRoot, destinationRoot)
+		if err != nil {
+			return nil, fmt.Errorf("invalid paths on JSONL line %d: %w", lineNum, err)
+		}
 
 		// Vérifier les conflits
 		if existingSource, exists := destMap[destPath]; exists {
@@ -136,6 +145,193 @@ func GeneratePlanFromJSONL(jsonlPath string, opts Options) (*Plan, error) {
 	plan.DirectoriesUsed = len(dirs)
 
 	return plan, nil
+}
+
+// validatePlanRoots normalise les racines et interdit une destination située dans la source.
+func validatePlanRoots(opts Options) (string, string, error) {
+	if strings.TrimSpace(opts.Source) == "" {
+		return "", "", fmt.Errorf("source directory is required")
+	}
+	if strings.TrimSpace(opts.Destination) == "" {
+		return "", "", fmt.Errorf("destination directory is required")
+	}
+
+	sourceRoot, err := filepath.Abs(opts.Source)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve source directory: %w", err)
+	}
+	destinationRoot, err := filepath.Abs(opts.Destination)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve destination directory: %w", err)
+	}
+
+	// Refuser une racine source symbolique rend explicite que le plan ne suit pas les symlinks.
+	sourceInfo, err := os.Lstat(sourceRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("inspect source directory: %w", err)
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 {
+		return "", "", fmt.Errorf("source directory must not be a symbolic link")
+	}
+	if !sourceInfo.IsDir() {
+		return "", "", fmt.Errorf("source path is not a directory")
+	}
+
+	if info, err := os.Stat(destinationRoot); err == nil && !info.IsDir() {
+		return "", "", fmt.Errorf("destination path is not a directory")
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("inspect destination directory: %w", err)
+	}
+
+	// Abs donne une base commune aux comparaisons; EvalSymlinks compare ensuite l'emplacement réel.
+	resolvedSource, err := resolveExistingPath(sourceRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve source directory links: %w", err)
+	}
+	resolvedDestination, err := resolveExistingPath(destinationRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve destination directory links: %w", err)
+	}
+	insideSource, err := pathWithinRoot(resolvedSource, resolvedDestination)
+	if err != nil {
+		return "", "", fmt.Errorf("compare source and destination: %w", err)
+	}
+	if insideSource {
+		return "", "", fmt.Errorf("destination directory must not be the source directory or a directory inside it")
+	}
+
+	return filepath.Clean(sourceRoot), filepath.Clean(destinationRoot), nil
+}
+
+// validateResultPaths vérifie que la source et la destination de l'enregistrement restent dans leurs racines.
+func validateResultPaths(result types.Result, sourceRoot, destinationRoot string) (string, error) {
+	if strings.TrimSpace(result.Path) == "" {
+		return "", fmt.Errorf("source file path is empty")
+	}
+	if filepath.IsAbs(result.TargetPath) || filepath.VolumeName(result.TargetPath) != "" {
+		return "", fmt.Errorf("target path must be relative")
+	}
+
+	sourcePath, err := filepath.Abs(result.Path)
+	if err != nil {
+		return "", fmt.Errorf("resolve source file path: %w", err)
+	}
+	insideSource, err := pathWithinRoot(sourceRoot, sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("compare source file with source directory: %w", err)
+	}
+	if !insideSource {
+		return "", fmt.Errorf("source file is outside the source directory")
+	}
+	if hasSymlink, err := hasSymlinkComponent(sourceRoot, sourcePath); err != nil {
+		return "", fmt.Errorf("inspect source file path: %w", err)
+	} else if hasSymlink {
+		return "", fmt.Errorf("source file path must not pass through a symbolic link")
+	}
+
+	destinationPath, err := filepath.Abs(generateDestinationPath(result, destinationRoot))
+	if err != nil {
+		return "", fmt.Errorf("resolve destination file path: %w", err)
+	}
+	insideDestination, err := pathWithinRoot(destinationRoot, destinationPath)
+	if err != nil {
+		return "", fmt.Errorf("compare destination file with destination directory: %w", err)
+	}
+	if !insideDestination {
+		return "", fmt.Errorf("target path escapes the destination directory")
+	}
+
+	// Un répertoire symlinké dans la destination ne doit pas rediriger l'écriture hors de sa racine.
+	resolvedRoot, err := resolveExistingPath(destinationRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve destination directory links: %w", err)
+	}
+	resolvedPath, err := resolveExistingPath(destinationPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve destination file links: %w", err)
+	}
+	insideResolvedDestination, err := pathWithinRoot(resolvedRoot, resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("compare resolved destination paths: %w", err)
+	}
+	if !insideResolvedDestination {
+		return "", fmt.Errorf("target path escapes the destination directory through a symbolic link")
+	}
+
+	return destinationPath, nil
+}
+
+// pathWithinRoot compare des chemins absolus avec filepath.Rel, sans confondre ".." et "..notes".
+func pathWithinRoot(root, candidate string) (bool, error) {
+	if !strings.EqualFold(filepath.VolumeName(root), filepath.VolumeName(candidate)) {
+		return false, nil
+	}
+	// Rel exprime candidate par rapport à root : un résultat ".." indique une sortie de la racine.
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false, err
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)), nil
+}
+
+// resolveExistingPath résout les liens existants même si les derniers éléments n'existent pas encore.
+func resolveExistingPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	current := absolute
+	var missingParts []string
+	for {
+		// EvalSymlinks exige un chemin existant; on remonte donc jusqu'au premier parent présent.
+		if _, err := os.Lstat(current); err == nil {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return "", err
+			}
+			// Les éléments ont été collectés en remontant; on les réassemble du parent vers l'enfant.
+			for i := len(missingParts) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missingParts[i])
+			}
+			return filepath.Clean(resolved), nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("no existing parent directory for %q", path)
+		}
+		missingParts = append(missingParts, filepath.Base(current))
+		current = parent
+	}
+}
+
+// hasSymlinkComponent recherche un lien symbolique entre la racine et le chemin inclus.
+func hasSymlinkComponent(root, candidate string) (bool, error) {
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false, err
+	}
+	if relative == "." {
+		return false, nil
+	}
+	current := root
+	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		// Lstat inspecte le lien lui-même; Stat suivrait le lien et cacherait sa présence.
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
