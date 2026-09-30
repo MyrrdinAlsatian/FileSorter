@@ -1,6 +1,7 @@
 package mover
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,6 +108,69 @@ func newOperationJournalEntry(action Mode, operation Operation, fallbackTime tim
 		Status:        operation.Status,
 		Error:         operation.Error,
 	}
+}
+
+// ReadOperationJournal charge et valide les entrées d'un journal JSONL.
+func ReadOperationJournal(path string) (entries []OperationJournalEntry, returnErr error) {
+	if path == "" {
+		return nil, fmt.Errorf("mover journal path is empty")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open mover journal %q: %w", path, err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("close mover journal %q: %w", path, err))
+		}
+	}()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var entry OperationJournalEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			return nil, fmt.Errorf("decode mover journal %q line %d: %w", path, lineNumber, err)
+		}
+		if err := validateOperationJournalEntry(entry); err != nil {
+			return nil, fmt.Errorf("invalid mover journal %q line %d: %w", path, lineNumber, err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read mover journal %q after line %d: %w", path, lineNumber, err)
+	}
+	return entries, nil
+}
+
+func validateOperationJournalEntry(entry OperationJournalEntry) error {
+	if entry.SchemaVersion != 1 {
+		return fmt.Errorf("unsupported schema version %d", entry.SchemaVersion)
+	}
+	if entry.Timestamp.IsZero() {
+		return fmt.Errorf("timestamp is missing")
+	}
+	switch entry.Action {
+	case ModeCopy, ModeMove, ModeHardlink, ModeSymlink:
+	default:
+		return fmt.Errorf("unknown action %q", entry.Action)
+	}
+	if entry.Size < 0 {
+		return fmt.Errorf("negative operation size %d", entry.Size)
+	}
+	switch entry.Status {
+	case StatusSuccess, StatusFailed, StatusSkipped, StatusConflict:
+	default:
+		return fmt.Errorf("non-terminal operation status %q", entry.Status)
+	}
+	return nil
 }
 
 // AppendOperationJournal ajoute les opérations terminées d'un résultat au journal JSONL.

@@ -30,7 +30,7 @@ Si le journal ne peut pas être ouvert, le CLI n'exécute pas le plan. Si une é
 
 ### Coûts et limites
 
-- Le journal n'est pas encore un mécanisme de reprise : aucune lecture ne reconstruit ni ne rejoue un plan.
+- `ReadOperationJournal` valide et charge les entrées, mais ne reconstruit ni ne rejoue un plan.
 - Une opération interrompue avant son état terminal n'a pas d'entrée finale dans le journal. La dernière opération en cours peut donc nécessiter une inspection manuelle après un arrêt brutal.
 - Chaque entrée est écrite avec `os.File.Write`, sans `Sync` systématique. Cela évite une synchronisation disque coûteuse à chaque fichier, mais ne garantit pas la persistance sur support en cas de panne système ou de perte d'alimentation.
 - Si l'écriture échoue, les opérations continuent mais les entrées suivantes ne sont plus tentées; le CLI signale `JournalError` à la fin.
@@ -45,11 +45,11 @@ Si le journal ne peut pas être ouvert, le CLI n'exécute pas le plan. Si une é
 
 ## Vérification
 
-Les tests vérifient l'ajout de plusieurs entrées, l'écriture concurrente de succès, d'échec et d'opération ignorée, ainsi que le signalement distinct d'une erreur d'écriture sans requalification d'une copie réussie. `go test ./...`, `go vet ./...` et `go build ./...` ont réussi pour cette évolution.
+Les tests vérifient l'ajout de plusieurs entrées, la lecture d'un journal valide, le rejet d'une ligne mal formée ou d'un enregistrement invalide, l'écriture concurrente de succès, d'échec et d'opération ignorée, ainsi que le signalement distinct d'une erreur d'écriture sans requalification d'une copie réussie. `go test ./...`, `go vet ./...` et `go build ./...` ont réussi pour cette évolution.
 
 ## Références d'implémentation
 
-- `mover/journal.go` : format JSONL et writer append concurrent.
+- `mover/journal.go` : format JSONL, writer append concurrent et lecteur strict.
 - `mover/executor.go` : ajout des entrées aux transitions terminales et collecte de `JournalError`.
 - `mover/mover.go` : résultat structuré d'exécution.
 - `main.go` et `utils/flags.go` : option `--move-journal` et cycle de vie du writer.
