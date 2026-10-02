@@ -207,29 +207,32 @@ func main() {
 		Validate:      opts.Validate,                       // Valider l'intégrité des fichiers
 		ValidateTypes: opts.ValidateTypes,                  // Types à valider
 	}
-	var currentFile atomic.Value
-	currentFile.Store("")
-	scanStatusStop := make(chan struct{})
-	scanStatusDone := make(chan struct{})
-	scanOpts.OnFile = func(path string) { currentFile.Store(path) }
-	go func() {
-		defer close(scanStatusDone)
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		lastDisplayed := ""
-		for {
-			select {
-			case <-scanStatusStop:
-				return
-			case <-ticker.C:
-				path := currentFile.Load().(string)
-				if path != "" && path != lastDisplayed {
-					bar.Describe("Fichier en cours: " + path)
-					lastDisplayed = path
+	var scanStatusStop, scanStatusDone chan struct{}
+	if opts.Debug {
+		var currentFile atomic.Value
+		currentFile.Store("")
+		scanStatusStop = make(chan struct{})
+		scanStatusDone = make(chan struct{})
+		scanOpts.OnFile = func(path string) { currentFile.Store(path) }
+		go func() {
+			defer close(scanStatusDone)
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			lastDisplayed := ""
+			for {
+				select {
+				case <-scanStatusStop:
+					return
+				case <-ticker.C:
+					path := currentFile.Load().(string)
+					if path != "" && path != lastDisplayed {
+						bar.Describe("Fichier en cours: " + path)
+						lastDisplayed = path
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	outcome, scanErr := app.ScanAndExport(ctx, app.ScanRequest{
 		SourceDir:   sourceDir,
@@ -247,8 +250,10 @@ func main() {
 			}
 		},
 	})
-	close(scanStatusStop)
-	<-scanStatusDone
+	if opts.Debug {
+		close(scanStatusStop)
+		<-scanStatusDone
+	}
 	bar.Finish()
 	if scanErr != nil {
 		fmt.Println("\n❌ Error during scanning:", scanErr)

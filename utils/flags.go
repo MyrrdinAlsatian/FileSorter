@@ -31,6 +31,7 @@ type Options struct {
 	SourceDir  string // Répertoire source à scanner
 	DryRun     bool   // Mode simulation (ne modifie rien)
 	Verbose    bool   // Affichage détaillé
+	Debug      bool   // Afficher le chemin du fichier courant pendant le scan
 	Workers    int    // Nombre de workers parallèles
 	Help       bool   // Afficher l'aide
 	Resume     bool   // Reprendre un scan interrompu
@@ -90,6 +91,7 @@ func DefaultOptions() Options {
 		SourceDir:   ".",
 		DryRun:      false,
 		Verbose:     false,
+		Debug:       false,
 		Workers:     4,
 		Help:        false,
 		Resume:      false,           // Par défaut : nouveau scan
@@ -163,6 +165,7 @@ func ParseFlags() Options {
 
 	flag.BoolVar(&opts.Verbose, "verbose", opts.Verbose, "Affichage détaillé")
 	flag.BoolVar(&opts.Verbose, "v", opts.Verbose, "Mode verbose (raccourci)")
+	flag.BoolVar(&opts.Debug, "debug", opts.Debug, "Afficher le chemin du fichier courant pendant le scan")
 
 	flag.IntVar(&opts.Workers, "workers", opts.Workers, "Nombre de workers parallèles")
 	flag.IntVar(&opts.Workers, "w", opts.Workers, "Nombre de workers (raccourci)")
@@ -292,6 +295,7 @@ OPTIONS GÉNÉRALES:
     -d, --date-org <MODE>  Organisation par date (voir ci-dessous)
     -n, --dry-run          Mode simulation - n'effectue aucune modification
     -v, --verbose          Affichage détaillé des opérations
+        --debug            Afficher le chemin du fichier courant pendant le scan
     -h, --help             Afficher cette aide
 
 REPRISE DE SCAN:

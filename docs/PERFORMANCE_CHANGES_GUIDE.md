@@ -124,13 +124,15 @@ Dans [`metadata/utils.go`](../metadata/utils.go), les types de fichiers qui ne s
 
 **Concept à retenir :** plusieurs goroutines peuvent mettre à jour des statistiques partagées. Le mutex de `SafeStats` protège ces modifications et évite les courses entre accès simultanés.
 
-## 11. La progression indique aussi un chemin en cours
+## 11. Le mode debug affiche le chemin en cours
 
-Chaque worker signale le chemin du fichier qu'il commence à traiter. La barre de progression affiche ce chemin et l'actualise au plus une fois par seconde. Comme plusieurs workers travaillent en parallèle, il s'agit du dernier chemin signalé, qui peut différer du fichier le plus lent.
+Avec l'option `--debug`, chaque worker signale le chemin du fichier qu'il commence à traiter. La barre de progression affiche ce chemin et l'actualise au plus une fois par seconde. Sans cette option, le scanner ne publie pas de chemin et la barre garde son affichage normal. `--verbose` reste indépendant.
+
+Comme plusieurs workers travaillent en parallèle, il s'agit du dernier chemin signalé, qui peut différer du fichier le plus lent.
 
 **Pourquoi :** lorsqu'on observe une longue pause dans le compteur, le chemin affiché donne un indice concret sur le fichier traité récemment.
 
-**Concept à retenir :** `atomic.Value` permet aux workers de publier le dernier chemin sans verrou explicite. Une goroutine avec un ticker lit cette valeur à intervalle régulier pour rafraîchir l'affichage. Limiter les rafraîchissements évite d'écrire dans le terminal pour chacun des centaines de milliers de fichiers.
+**Concept à retenir :** `atomic.Value` permet aux workers de publier le dernier chemin sans verrou explicite. Une goroutine avec un ticker lit cette valeur à intervalle régulier pour rafraîchir l'affichage. Cette goroutine n'existe qu'en mode debug, et limiter les rafraîchissements évite d'écrire dans le terminal pour chacun des centaines de milliers de fichiers.
 
 ## Valeurs de référence avant les modifications
 
