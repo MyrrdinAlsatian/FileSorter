@@ -35,6 +35,8 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"FileRecoveryOrganizer/app"
 	"FileRecoveryOrganizer/checkpoint"
@@ -165,20 +167,21 @@ func main() {
 	// ÉTAPE 4 : PRÉ-COMPTAGE DES FICHIERS
 	// ═══════════════════════════════════════════════════════════════════════
 
-	// Compter les fichiers AVANT le scan pour afficher une barre de progression
-	err := scanner.CountFileContext(ctx, sourceDir, stats)
-	if err != nil {
-		fmt.Println("Error during the file count process:", err)
-		return
+	progressTotal := -1
+	if opts.PreCount {
+		if err := scanner.CountFileContext(ctx, sourceDir, stats); err != nil {
+			fmt.Println("Error during the file count process:", err)
+			return
+		}
+		progressTotal = stats.TotalFiles
+		fmt.Printf(" ➡ Total files: %d, Total directories: %d\n", stats.TotalFiles, stats.TotalDirs)
+		fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
 	}
-
-	fmt.Printf(" ➡ Total files: %d, Total directories: %d\n", stats.TotalFiles, stats.TotalDirs)
-	fmt.Printf("Taille totale des fichiers: %s\n", utils.ReadableSize(stats.TotalSize))
 	fmt.Printf("Start scanning...")
 
 	// Détecteur de doublons (initialisé seulement si demandé)
 	var duplicateFinder *dedup.DuplicateFinder
-	if opts.ComputeHash || opts.HashReport {
+	if opts.HashReport {
 		// Configurer le détecteur avec les options
 		dedupOpts := dedup.FinderOptions{
 			MinSize: opts.MinDupSize,
@@ -187,21 +190,46 @@ func main() {
 		duplicateFinder = dedup.NewDuplicateFinderWithOptions(dedupOpts)
 	}
 
-	// Slice pour collecter les résultats si on génère un rapport HTML
-	var allResults []types.Result
 	collectResults := opts.HTMLReport != ""
+	var htmlReport *report.Builder
+	if collectResults {
+		htmlReport = report.NewBuilder(sourceDir)
+	}
 
 	// Créer une barre de progression
-	bar := scanner.CreateProgessBar(stats.TotalFiles)
+	bar := scanner.CreateProgessBar(progressTotal)
 
 	// Construire les options de scan complètes
 	scanOpts := scanner.ScanOptions{
 		ClassifyOpts:  classifyOpts,
-		ComputeHash:   opts.ComputeHash || opts.HashReport || opts.MoveResume, // Le rapprochement de reprise exige un hash complet
-		SkipChecker:   processedFiles,                                         // Pour le mode resume (sera nil si pas de resume)
-		Validate:      opts.Validate,                                          // Valider l'intégrité des fichiers
-		ValidateTypes: opts.ValidateTypes,                                     // Types à valider
+		ComputeHash:   opts.ComputeHash || opts.MoveResume, // Le rapport de doublons calcule les hash uniquement sur ses candidats
+		SkipChecker:   processedFiles,                      // Pour le mode resume (sera nil si pas de resume)
+		Validate:      opts.Validate,                       // Valider l'intégrité des fichiers
+		ValidateTypes: opts.ValidateTypes,                  // Types à valider
 	}
+	var currentFile atomic.Value
+	currentFile.Store("")
+	scanStatusStop := make(chan struct{})
+	scanStatusDone := make(chan struct{})
+	scanOpts.OnFile = func(path string) { currentFile.Store(path) }
+	go func() {
+		defer close(scanStatusDone)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		lastDisplayed := ""
+		for {
+			select {
+			case <-scanStatusStop:
+				return
+			case <-ticker.C:
+				path := currentFile.Load().(string)
+				if path != "" && path != lastDisplayed {
+					bar.Describe("Fichier en cours: " + path)
+					lastDisplayed = path
+				}
+			}
+		}
+	}()
 
 	outcome, scanErr := app.ScanAndExport(ctx, app.ScanRequest{
 		SourceDir:   sourceDir,
@@ -212,13 +240,16 @@ func main() {
 		OnProgress:  func() { bar.Add(1) },
 		OnResult: func(result types.Result) {
 			if duplicateFinder != nil {
-				duplicateFinder.AddFile(result.Path, result.Size)
+				duplicateFinder.AddFileWithQuickHash(result.Path, result.Size, result.QuickHash, result.ScanModTime)
 			}
-			if collectResults {
-				allResults = append(allResults, result)
+			if htmlReport != nil {
+				htmlReport.AddResult(result)
 			}
 		},
 	})
+	close(scanStatusStop)
+	<-scanStatusDone
+	bar.Finish()
 	if scanErr != nil {
 		fmt.Println("\n❌ Error during scanning:", scanErr)
 		return
@@ -229,7 +260,7 @@ func main() {
 	}
 
 	// Afficher le résumé final
-	printSummary(outcome.Stats, stats, outcome.ResultCount, opts.Verbose)
+	printSummary(outcome.Stats, outcome.ResultCount, opts.Verbose)
 
 	// ═══════════════════════════════════════════════════════════════════════
 	// ÉTAPE 9 : RAPPORT DE DOUBLONS (si demandé)
@@ -262,7 +293,7 @@ func main() {
 
 	if opts.HTMLReport != "" {
 		fmt.Println("\n📊 Génération du rapport HTML...")
-		if err := report.GenerateHTML(allResults, sourceDir, opts.HTMLReport, duplicateReport); err != nil {
+		if err := htmlReport.GenerateHTML(opts.HTMLReport, duplicateReport); err != nil {
 			log.Printf("⚠️  Erreur lors de la génération du rapport HTML: %v", err)
 		} else {
 			fmt.Printf("🌐 Rapport HTML généré: %s\n", opts.HTMLReport)
@@ -317,13 +348,13 @@ func printBanner() {
 //   - stats : statistiques initiales (comptage des répertoires)
 //   - resultCount : nombre de résultats exportés
 //   - verbose : si true, afficher tous les types de fichiers
-func printSummary(statsSafe *scanner.SafeStats, stats *types.Stats, resultCount int, verbose bool) {
+func printSummary(statsSafe *scanner.SafeStats, resultCount int, verbose bool) {
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
 	fmt.Println("                        📊 RÉSUMÉ DU SCAN")
 	fmt.Println("═══════════════════════════════════════════════════════════════════")
 	fmt.Printf("  📁 Total fichiers traités:  %d\n", statsSafe.TotalFiles)
-	fmt.Printf("  📂 Total répertoires:       %d\n", stats.TotalDirs)
+	fmt.Printf("  📂 Total répertoires:       %d\n", statsSafe.TotalDirs)
 	fmt.Printf("  💾 Taille totale:           %s\n", utils.ReadableSize(statsSafe.TotalSize))
 	fmt.Printf("  📤 Entrées exportées:       %d\n", resultCount)
 

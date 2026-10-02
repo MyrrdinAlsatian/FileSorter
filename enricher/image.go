@@ -7,11 +7,13 @@ package enricher
 import (
 	"image"
 	"os"
+	"time"
 
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 
+	"FileRecoveryOrganizer/metadata"
 	"FileRecoveryOrganizer/types"
 
 	"github.com/rwcarlsen/goexif/exif"
@@ -40,10 +42,10 @@ import (
 //
 // Note : Si une erreur survient (fichier illisible, pas d'EXIF, etc.),
 // la fonction retourne silencieusement. res.Image restera nil.
-func EnrichImage(res *types.Result) {
+func EnrichImage(res *types.Result) metadata.FileData {
 	f, err := os.Open(res.Path)
 	if err != nil {
-		return // Impossible d'ouvrir le fichier
+		return metadata.FileData{Valid: false} // Impossible d'ouvrir le fichier
 	}
 	defer f.Close()
 
@@ -51,7 +53,7 @@ func EnrichImage(res *types.Result) {
 	// exif.Decode lit le fichier image et extrait les métadonnées EXIF
 	x, err := exif.Decode(f)
 	if err != nil {
-		return // Le fichier n'a pas de données EXIF valides
+		return metadata.FileData{Valid: false} // Le fichier n'a pas de données EXIF valides
 	}
 
 	// Créer la structure ImageMeta pour stocker les résultats
@@ -91,4 +93,24 @@ func EnrichImage(res *types.Result) {
 	// Assigner les données EXIF au Result
 	meta.Exif = iexif
 	res.Image = meta
+
+	return imageDateFromEXIF(x)
+}
+
+func imageDateFromEXIF(x *exif.Exif) metadata.FileData {
+	for _, tag := range []string{"DateTimeOriginal", "CreateDate", "ModifyDate"} {
+		value, err := x.Get(exif.FieldName(tag))
+		if err != nil {
+			continue
+		}
+		dateText, err := value.StringVal()
+		if err != nil {
+			continue
+		}
+		parsed, err := time.Parse("2006:01:02 15:04:05", dateText)
+		if err == nil {
+			return metadata.FileData{Time: parsed, Source: "exif:" + tag, Valid: true}
+		}
+	}
+	return metadata.FileData{Valid: false}
 }

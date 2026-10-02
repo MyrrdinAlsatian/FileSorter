@@ -34,6 +34,7 @@ type Options struct {
 	Workers    int    // Nombre de workers parallèles
 	Help       bool   // Afficher l'aide
 	Resume     bool   // Reprendre un scan interrompu
+	PreCount   bool   // Compter les fichiers avant le scan pour afficher une progression exacte
 
 	// Options d'organisation par date
 	// Valeurs possibles : "none", "year", "year-month", "year-month-day"
@@ -92,6 +93,7 @@ func DefaultOptions() Options {
 		Workers:     4,
 		Help:        false,
 		Resume:      false,           // Par défaut : nouveau scan
+		PreCount:    false,           // Par défaut : éviter le parcours préalable
 		DateOrg:     "none",          // Par défaut : pas d'organisation par date
 		ComputeHash: false,           // Par défaut : pas de calcul de hash
 		HashReport:  false,           // Par défaut : pas de rapport de doublons
@@ -164,6 +166,7 @@ func ParseFlags() Options {
 
 	flag.IntVar(&opts.Workers, "workers", opts.Workers, "Nombre de workers parallèles")
 	flag.IntVar(&opts.Workers, "w", opts.Workers, "Nombre de workers (raccourci)")
+	flag.BoolVar(&opts.PreCount, "precount", opts.PreCount, "Compter les fichiers avant le scan pour afficher le pourcentage exact")
 
 	flag.BoolVar(&opts.Help, "help", false, "Afficher l'aide")
 	flag.BoolVar(&opts.Help, "h", false, "Afficher l'aide (raccourci)")
@@ -285,6 +288,7 @@ OPTIONS GÉNÉRALES:
     -s, --source <PATH>    Répertoire source à scanner (défaut: .)
     -e, --export <PATH>    Chemin du fichier d'export JSONL (défaut: scan_results.jsonl)
     -w, --workers <N>      Nombre de workers parallèles (défaut: 4, max: 32)
+        --precount         Compter les fichiers avant le scan (progression exacte, parcours supplémentaire)
     -d, --date-org <MODE>  Organisation par date (voir ci-dessous)
     -n, --dry-run          Mode simulation - n'effectue aucune modification
     -v, --verbose          Affichage détaillé des opérations

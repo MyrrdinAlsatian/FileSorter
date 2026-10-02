@@ -88,6 +88,80 @@ type FileEntry struct {
 	Date       string `json:"date,omitempty"`
 }
 
+// Builder agrège les résultats sans conserver toute la liste en mémoire.
+type Builder struct {
+	data          ReportData
+	categoryStats map[string]*CategoryStats
+	typeStats     map[string]*FileTypeStats
+}
+
+const maxReportFiles = 1000
+
+// NewBuilder crée un agrégateur pour un rapport HTML.
+func NewBuilder(sourceDir string) *Builder {
+	return &Builder{
+		data: ReportData{
+			Title:       "File Recovery Organizer - Rapport",
+			GeneratedAt: time.Now(),
+			SourceDir:   sourceDir,
+		},
+		categoryStats: make(map[string]*CategoryStats),
+		typeStats:     make(map[string]*FileTypeStats),
+	}
+}
+
+// AddResult met à jour les statistiques et ne garde que les premières entrées affichées.
+func (b *Builder) AddResult(r types.Result) {
+	b.data.TotalFiles++
+	b.data.TotalSize += r.Size
+
+	category := extractCategory(r.TargetPath)
+	if b.categoryStats[category] == nil {
+		b.categoryStats[category] = &CategoryStats{Name: category}
+	}
+	b.categoryStats[category].Count++
+	b.categoryStats[category].Size += r.Size
+
+	ext := r.Type
+	if ext == "" {
+		ext = "unknown"
+	}
+	if b.typeStats[ext] == nil {
+		b.typeStats[ext] = &FileTypeStats{Extension: ext}
+	}
+	b.typeStats[ext].Count++
+	b.typeStats[ext].Size += r.Size
+
+	if len(b.data.Files) < maxReportFiles {
+		entry := FileEntry{
+			Path:       r.Path,
+			Name:       filepath.Base(r.Path),
+			Type:       r.Type,
+			Size:       r.Size,
+			SizeHuman:  utils.ReadableSize(r.Size),
+			Category:   category,
+			TargetPath: r.TargetPath,
+		}
+		if r.AdditionalInfo != nil && r.AdditionalInfo.Valid {
+			entry.HasDate = true
+			entry.Date = r.AdditionalInfo.Time.Format("2006-01-02")
+		}
+		b.data.Files = append(b.data.Files, entry)
+	}
+}
+
+// GenerateHTML finalise et écrit le rapport agrégé.
+func (b *Builder) GenerateHTML(outputPath string, duplicates *dedup.DuplicateReport) error {
+	b.data.Categories = mapToCategories(b.categoryStats, b.data.TotalFiles)
+	b.data.FileTypes = mapToFileTypes(b.typeStats, b.data.TotalFiles)
+	b.data.TotalSizeHuman = utils.ReadableSize(b.data.TotalSize)
+	if duplicates != nil && duplicates.DuplicateGroups > 0 {
+		b.data.HasDuplicates = true
+		b.data.DuplicateReport = duplicates
+	}
+	return writeHTML(b.data, outputPath)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // FONCTIONS DE GÉNÉRATION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -103,9 +177,15 @@ type FileEntry struct {
 // Retour :
 //   - error : erreur si la génération échoue
 func GenerateHTML(results []types.Result, sourceDir string, outputPath string, duplicates *dedup.DuplicateReport) error {
-	// Construire les données du rapport
-	data := buildReportData(results, sourceDir, duplicates)
+	builder := NewBuilder(sourceDir)
+	for _, result := range results {
+		builder.AddResult(result)
+	}
+	return builder.GenerateHTML(outputPath, duplicates)
+}
 
+// writeHTML écrit les données déjà agrégées dans le template.
+func writeHTML(data ReportData, outputPath string) error {
 	// Créer le fichier de sortie
 	f, err := os.Create(outputPath)
 	if err != nil {
@@ -124,79 +204,18 @@ func GenerateHTML(results []types.Result, sourceDir string, outputPath string, d
 
 // buildReportData construit les données du rapport à partir des résultats.
 func buildReportData(results []types.Result, sourceDir string, duplicates *dedup.DuplicateReport) ReportData {
-	data := ReportData{
-		Title:       "File Recovery Organizer - Rapport",
-		GeneratedAt: time.Now(),
-		SourceDir:   sourceDir,
-		TotalFiles:  len(results),
-	}
-
-	// Maps pour accumuler les statistiques
-	categoryStats := make(map[string]*CategoryStats)
-	typeStats := make(map[string]*FileTypeStats)
-
-	// Parcourir tous les résultats
+	builder := NewBuilder(sourceDir)
 	for _, r := range results {
-		data.TotalSize += r.Size
-
-		// Extraire la catégorie du TargetPath
-		category := extractCategory(r.TargetPath)
-
-		// Statistiques par catégorie
-		if _, ok := categoryStats[category]; !ok {
-			categoryStats[category] = &CategoryStats{Name: category}
-		}
-		categoryStats[category].Count++
-		categoryStats[category].Size += r.Size
-
-		// Statistiques par type
-		ext := r.Type
-		if ext == "" {
-			ext = "unknown"
-		}
-		if _, ok := typeStats[ext]; !ok {
-			typeStats[ext] = &FileTypeStats{Extension: ext}
-		}
-		typeStats[ext].Count++
-		typeStats[ext].Size += r.Size
+		builder.AddResult(r)
 	}
-
-	// Convertir les maps en slices triées
-	data.Categories = mapToCategories(categoryStats, data.TotalFiles)
-	data.FileTypes = mapToFileTypes(typeStats, data.TotalFiles)
-
-	// Limiter les fichiers pour le HTML (les 1000 premiers)
-	maxFiles := 1000
-	if len(results) < maxFiles {
-		maxFiles = len(results)
-	}
-	data.Files = make([]FileEntry, maxFiles)
-	for i := 0; i < maxFiles; i++ {
-		r := results[i]
-		data.Files[i] = FileEntry{
-			Path:       r.Path,
-			Name:       filepath.Base(r.Path),
-			Type:       r.Type,
-			Size:       r.Size,
-			SizeHuman:  utils.ReadableSize(r.Size),
-			Category:   extractCategory(r.TargetPath),
-			TargetPath: r.TargetPath,
-		}
-		if r.AdditionalInfo != nil && r.AdditionalInfo.Valid {
-			data.Files[i].HasDate = true
-			data.Files[i].Date = r.AdditionalInfo.Time.Format("2006-01-02")
-		}
-	}
-
-	data.TotalSizeHuman = utils.ReadableSize(data.TotalSize)
-
-	// Doublons
+	builder.data.Categories = mapToCategories(builder.categoryStats, builder.data.TotalFiles)
+	builder.data.FileTypes = mapToFileTypes(builder.typeStats, builder.data.TotalFiles)
+	builder.data.TotalSizeHuman = utils.ReadableSize(builder.data.TotalSize)
 	if duplicates != nil && duplicates.DuplicateGroups > 0 {
-		data.HasDuplicates = true
-		data.DuplicateReport = duplicates
+		builder.data.HasDuplicates = true
+		builder.data.DuplicateReport = duplicates
 	}
-
-	return data
+	return builder.data
 }
 
 // extractCategory extrait la catégorie principale du chemin cible.

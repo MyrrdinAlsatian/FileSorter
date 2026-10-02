@@ -12,6 +12,8 @@ Cette documentation explique FileSorter et les concepts de Go utilisés dans le 
 6. [Utiliser le Taskfile](TASKFILE.md)
 7. [Pistes d'amélioration du projet](IMPROVEMENTS.md)
 
+8. [Comprendre les changements de performance](PERFORMANCE_CHANGES_GUIDE.md)
+
 ## Packages importants
 
 | Package | Responsabilité | Concepts |

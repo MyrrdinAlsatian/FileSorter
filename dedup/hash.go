@@ -35,6 +35,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/schollz/progressbar/v3"
 )
@@ -52,6 +53,11 @@ const (
 
 	// DefaultMinSize : taille minimale par défaut pour chercher les doublons (1 MB)
 	DefaultMinSize = 1 * 1024 * 1024
+)
+
+var (
+	quickHashBufferPool = sync.Pool{New: func() any { return make([]byte, QuickHashSize) }}
+	fullHashBufferPool  = sync.Pool{New: func() any { return make([]byte, 32*1024) }}
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -135,7 +141,8 @@ func ComputeQuickHashContext(ctx context.Context, path string, size int64) (stri
 	hasher := sha256.New()
 
 	// Lire le début
-	buf := make([]byte, QuickHashSize)
+	buf := quickHashBufferPool.Get().([]byte)
+	defer quickHashBufferPool.Put(buf)
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -204,7 +211,8 @@ func ComputeFullHashContext(ctx context.Context, path string) (string, error) {
 	hasher := sha256.New()
 
 	// Lire par blocs de 32KB pour économiser la mémoire
-	buf := make([]byte, 32*1024)
+	buf := fullHashBufferPool.Get().([]byte)
+	defer fullHashBufferPool.Put(buf)
 	if _, err := io.CopyBuffer(hasher, contextReader{ctx: ctx, reader: f}, buf); err != nil {
 		return "", err
 	}
@@ -237,7 +245,7 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 // aux maps internes. Cela permet d'appeler AddFile depuis plusieurs goroutines.
 type DuplicateFinder struct {
 	mu      sync.Mutex
-	bySize  map[int64][]string
+	bySize  map[int64][]hashJob
 	options FinderOptions
 }
 
@@ -252,22 +260,29 @@ func NewDuplicateFinderWithOptions(opts FinderOptions) *DuplicateFinder {
 		opts.Workers = runtime.NumCPU()
 	}
 	return &DuplicateFinder{
-		bySize:  make(map[int64][]string),
+		bySize:  make(map[int64][]hashJob),
 		options: opts,
 	}
 }
 
 // AddFile ajoute un fichier au détecteur (thread-safe).
 func (df *DuplicateFinder) AddFile(path string, size int64) {
+	df.AddFileWithQuickHash(path, size, "", time.Time{})
+}
+
+// AddFileWithQuickHash ajoute un fichier et réutilise éventuellement son quick hash.
+func (df *DuplicateFinder) AddFileWithQuickHash(path string, size int64, quickHash string, modTime time.Time) {
 	df.mu.Lock()
 	defer df.mu.Unlock()
-	df.bySize[size] = append(df.bySize[size], path)
+	df.bySize[size] = append(df.bySize[size], hashJob{path: path, size: size, quickHash: quickHash, modTime: modTime})
 }
 
 // hashJob représente un travail de hash à effectuer.
 type hashJob struct {
-	path string
-	size int64
+	path      string
+	size      int64
+	quickHash string
+	modTime   time.Time
 }
 
 // FindDuplicates analyse les fichiers et retourne le rapport de doublons.
@@ -299,27 +314,27 @@ func (df *DuplicateFinder) FindDuplicatesContext(ctx context.Context) (*Duplicat
 	var candidates []hashJob
 	var uniqueSizeCount, skippedSmall int
 
-	for size, paths := range df.bySize {
+	for size, files := range df.bySize {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		report.TotalFiles += len(paths)
+		report.TotalFiles += len(files)
 
 		// Ignorer les fichiers trop petits
 		if size < minSize {
-			skippedSmall += len(paths)
+			skippedSmall += len(files)
 			continue
 		}
 
 		// Garder seulement les tailles avec 2+ fichiers
-		if len(paths) == 1 {
+		if len(files) == 1 {
 			uniqueSizeCount++
 			continue
 		}
 
 		// Ajouter comme candidats
-		for _, p := range paths {
-			candidates = append(candidates, hashJob{path: p, size: size})
+		for _, file := range files {
+			candidates = append(candidates, file)
 		}
 	}
 
@@ -340,6 +355,11 @@ func (df *DuplicateFinder) FindDuplicatesContext(ctx context.Context) (*Duplicat
 	fmt.Println("   🔍 Passe 2/3: Calcul des hash rapides...")
 
 	byQuickHash, err := df.parallelHashContext(ctx, candidates, workers, "Quick hash", func(ctx context.Context, job hashJob) (string, error) {
+		if job.quickHash != "" {
+			if info, err := os.Stat(job.path); err == nil && info.Size() == job.size && info.ModTime().Equal(job.modTime) {
+				return job.quickHash, nil
+			}
+		}
 		return ComputeQuickHashContext(ctx, job.path, job.size)
 	})
 	if err != nil {
@@ -348,27 +368,12 @@ func (df *DuplicateFinder) FindDuplicatesContext(ctx context.Context) (*Duplicat
 
 	// Filtrer pour ne garder que les groupes avec 2+ fichiers
 	var fullHashCandidates []hashJob
-	for _, paths := range byQuickHash {
+	for _, files := range byQuickHash {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		if len(paths) > 1 {
-			for _, p := range paths {
-				// Récupérer la taille depuis bySize
-				var size int64
-				for s, ps := range df.bySize {
-					for _, pp := range ps {
-						if pp == p {
-							size = s
-							break
-						}
-					}
-					if size > 0 {
-						break
-					}
-				}
-				fullHashCandidates = append(fullHashCandidates, hashJob{path: p, size: size})
-			}
+		if len(files) > 1 {
+			fullHashCandidates = append(fullHashCandidates, files...)
 		}
 	}
 
@@ -395,27 +400,29 @@ func (df *DuplicateFinder) FindDuplicatesContext(ctx context.Context) (*Duplicat
 	// ═══════════════════════════════════════════════════════════════════════
 	// Construction du rapport
 	// ═══════════════════════════════════════════════════════════════════════
-	for hash, paths := range byFullHash {
+	for hash, files := range byFullHash {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		if len(paths) > 1 {
+		if len(files) > 1 {
 			var size int64
-			if info, err := os.Stat(paths[0]); err == nil {
-				size = info.Size()
+			size = files[0].size
+			paths := make([]string, len(files))
+			for i, file := range files {
+				paths[i] = file.path
 			}
 
 			group := DuplicateGroup{
 				Hash:  hash[:16] + "...",
 				Size:  size,
-				Count: len(paths),
+				Count: len(files),
 				Paths: paths,
 				Waste: size * int64(len(paths)-1),
 			}
 
 			report.Groups = append(report.Groups, group)
 			report.DuplicateGroups++
-			report.DuplicateFiles += len(paths)
+			report.DuplicateFiles += len(files)
 			report.WastedSpace += group.Waste
 		}
 	}
@@ -432,12 +439,12 @@ func (df *DuplicateFinder) parallelHashContext(
 	workers int,
 	description string,
 	hashFunc func(context.Context, hashJob) (string, error),
-) (map[string][]string, error) {
+) (map[string][]hashJob, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	results := make(map[string][]string)
+	results := make(map[string][]hashJob)
 	var mu sync.Mutex
 	var processed int64
 
@@ -478,7 +485,7 @@ func (df *DuplicateFinder) parallelHashContext(
 					hash, err := hashFunc(ctx, job)
 					if err == nil {
 						mu.Lock()
-						results[hash] = append(results[hash], job.path)
+						results[hash] = append(results[hash], job)
 						mu.Unlock()
 					}
 					atomic.AddInt64(&processed, 1)

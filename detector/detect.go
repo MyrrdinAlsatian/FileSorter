@@ -16,7 +16,20 @@
 //   - Pattern : non utilisé pour les binaires
 package detector
 
-import "os"
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"sync"
+)
+
+const maxPatternBytes = 64 * 1024
+
+var patternBufferPool = sync.Pool{
+	New: func() any { return new([maxPatternBytes]byte) },
+}
 
 // Detect détermine le type de fichier en utilisant plusieurs stratégies.
 //
@@ -43,15 +56,80 @@ func Detect(path string) string {
 	}
 
 	// Deuxième tentative : analyse du contenu (patterns)
-	content, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return "unknown"
 	}
+	defer f.Close()
+
+	buffer := patternBufferPool.Get().(*[maxPatternBytes]byte)
+	defer patternBufferPool.Put(buffer)
+	n, err := io.ReadFull(f, buffer[:])
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return "unknown"
+	}
+	content := buffer[:n]
 	patternType := detectPattern(content)
 
 	if patternType != "other extension" {
 		return patternType
 	}
 
+	// Valider les JSON volumineux en flux : on lit tout le contenu sans le charger
+	// intégralement en mémoire. Les autres patterns restent limités à l'en-tête.
+	if looksLikeJSON(content) {
+		if _, err := f.Seek(0, io.SeekStart); err == nil && isValidJSONStream(f) {
+			return "json"
+		}
+	}
+
 	return "unknown"
+}
+
+func looksLikeJSON(content []byte) bool {
+	content = bytes.TrimSpace(content)
+	if len(content) == 0 {
+		return false
+	}
+	switch content[0] {
+	case '{', '[', '"', 't', 'f', 'n', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidJSONStream(r io.Reader) bool {
+	decoder := json.NewDecoder(r)
+	decoder.UseNumber()
+
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	depth := 0
+	if delim, ok := token.(json.Delim); ok {
+		if delim != '{' && delim != '[' {
+			return false
+		}
+		depth = 1
+	}
+
+	for depth > 0 {
+		token, err = decoder.Token()
+		if err != nil {
+			return false
+		}
+		if delim, ok := token.(json.Delim); ok {
+			switch delim {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+			}
+		}
+	}
+
+	_, err = decoder.Token()
+	return errors.Is(err, io.EOF)
 }

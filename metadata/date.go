@@ -21,6 +21,14 @@ func FileSystemDate(path string) FileData {
 		return FileData{Valid: false}
 	}
 
+	return FileSystemDateFromInfo(info)
+}
+
+// FileSystemDateFromInfo construit la date de fichier à partir d'informations déjà lues.
+func FileSystemDateFromInfo(info os.FileInfo) FileData {
+	if info == nil {
+		return FileData{Valid: false}
+	}
 	return FileData{
 		Time:   info.ModTime(),
 		Source: "filesystem:modification",

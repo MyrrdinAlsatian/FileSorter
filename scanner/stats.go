@@ -37,6 +37,7 @@ type SafeStats struct {
 	// Statistiques globales
 	TotalFiles int64 // Nombre total de fichiers traités
 	TotalSize  int64 // Taille totale en octets
+	TotalDirs  int64 // Nombre de répertoires parcourus
 
 	Errors int64 // Nombre de fichiers avec erreur
 }
@@ -57,6 +58,13 @@ func NewStats() *SafeStats {
 		FilesByType: make(map[string]int64),
 		BytesByType: make(map[string]int64),
 	}
+}
+
+// AddDirectory incrémente le nombre de répertoires parcourus.
+func (s *SafeStats) AddDirectory() {
+	s.mu.Lock()
+	s.TotalDirs++
+	s.mu.Unlock()
 }
 
 // AddFile ajoute les statistiques d'un fichier traité de façon thread-safe.

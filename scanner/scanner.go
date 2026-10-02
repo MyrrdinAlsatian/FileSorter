@@ -44,6 +44,7 @@ type ScanOptions struct {
 	SkipChecker   SkipChecker                // Vérificateur de fichiers à ignorer (nil = aucun)
 	Validate      bool                       // Valider l'intégrité des fichiers
 	ValidateTypes string                     // Types à valider (image, video, audio, all)
+	OnFile        func(path string)          // Notifier le chemin pris en charge par un worker
 }
 
 // DefaultScanOptions retourne les options de scan par défaut.
@@ -239,6 +240,9 @@ func ScanDirectoryParallelWithScanOptionsContext(ctx context.Context, sourceDir 
 				if ctx.Err() != nil {
 					return
 				}
+				if opts.OnFile != nil {
+					opts.OnFile(path)
+				}
 
 				// Récupère les informations du fichier
 				info, err := os.Stat(path)
@@ -256,16 +260,19 @@ func ScanDirectoryParallelWithScanOptionsContext(ctx context.Context, sourceDir 
 				result := types.Result{
 					Path:           path,
 					Size:           info.Size(),
+					ScanModTime:    info.ModTime(),
 					Type:           fileType,
 					AdditionalInfo: &metadata.FileData{}, // Initialise un pointeur vers une structure FileData vide
 				}
 
 				// Enrichir les images avec les métadonnées EXIF
 				if metadata.IsImageType(fileType) {
-					enricher.EnrichImage(&result)
+					fileDate := enricher.EnrichImage(&result)
 					detector.DetectAssetImg(path, info.Size(), result.Image)
 					detector.DetectThumbnail(path, info.Size(), result.Image)
-					fileDate := metadata.BestDate(path, true)
+					if !fileDate.Valid {
+						fileDate = metadata.FileSystemDateFromInfo(info)
+					}
 					result.AdditionalInfo = &fileDate
 				} else {
 					// Pour les autres types (audio, vidéo, etc.)
@@ -326,7 +333,11 @@ func ScanDirectoryParallelWithScanOptionsContext(ctx context.Context, sourceDir 
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			stats.AddDirectory()
 			return nil
 		}
 

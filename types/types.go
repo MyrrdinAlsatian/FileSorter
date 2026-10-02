@@ -4,7 +4,11 @@
 // pour assurer une cohérence dans la structure des données.
 package types
 
-import "FileRecoveryOrganizer/metadata"
+import (
+	"time"
+
+	"FileRecoveryOrganizer/metadata"
+)
 
 // Stats contient les statistiques globales d'un répertoire.
 //
@@ -58,6 +62,7 @@ type ImageMeta struct {
 type Result struct {
 	Path           string             `json:"path"`                      // Chemin complet du fichier
 	Size           int64              `json:"size"`                      // Taille en octets
+	ScanModTime    time.Time          `json:"-"`                         // Date de modification observée pendant le scan
 	Type           string             `json:"type"`                      // Type détecté (jpg, pdf, mp4, etc.)
 	Image          *ImageMeta         `json:"image_exif,omitempty"`      // Métadonnées image (nil si pas une image)
 	Error          string             `json:"error,omitempty"`           // Message d'erreur si problème

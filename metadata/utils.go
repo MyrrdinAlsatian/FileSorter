@@ -41,15 +41,17 @@ import (
 // Note : Retourne toujours un pointeur (même si vide) pour cohérence.
 // Vérifier FileData.Valid pour savoir si les données ont été trouvées.
 func GetFileMeta(path string, fileType string) *FileData {
-	meta := &FileData{} // Crée une structure vide
+	meta := &FileData{}                    // Crée une structure vide
+	lowerType := strings.ToLower(fileType) // Convertit en minuscules pour comparaison
+	if !IsImageType(lowerType) && !IsAudioType(lowerType) && !IsVideoType(lowerType) && lowerType != "divx" {
+		return meta
+	}
 
 	f, err := os.Open(path)
 	if err != nil {
 		return meta
 	}
 	defer f.Close()
-
-	lowerType := strings.ToLower(fileType) // Convertit en minuscules pour comparaison
 
 	// Pour les images : extraire EXIF
 	if IsImageType(lowerType) {
